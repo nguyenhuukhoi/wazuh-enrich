@@ -216,11 +216,11 @@ Run daemon mode:
 python3 vuln_enricher.py daemon
 ```
 
-Use readable terminal logs by default, or JSON logs when shipping to a collector:
+Logs default to JSON for production collectors. Use text logs when reading output directly in a terminal:
 
 ```bash
+python3 vuln_enricher.py --dry-run run-once
 python3 vuln_enricher.py --log-format text --dry-run run-once
-python3 vuln_enricher.py --log-format json daemon
 ```
 
 In `--dry-run`, alerts are printed as readable blocks and are not sent to Telegram.

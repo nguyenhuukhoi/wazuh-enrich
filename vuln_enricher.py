@@ -262,8 +262,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--log-format",
         choices=["text", "json"],
-        default="text",
-        help="Console log format. Use json when shipping logs to a collector.",
+        default="json",
+        help="Console log format. Defaults to json for production log collectors.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("sync-feeds")
