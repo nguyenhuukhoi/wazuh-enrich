@@ -115,10 +115,11 @@ def enrich(
     enriched_docs: list[dict[str, Any]] = []
     malformed = 0
     latest_detected_at: str | None = None
+    agent_metadata = client.agent_metadata()
 
     for source in client.iter_vulnerability_findings(agent_id=agent_id, since=since):
         try:
-            doc = normalize_finding(source, kev_cves, epss_records, poc_records)
+            doc = normalize_finding(source, kev_cves, epss_records, poc_records, agent_metadata)
             if not doc:
                 malformed += 1
                 continue
@@ -200,6 +201,7 @@ def detect_new_agents(
     new_agents = 0
     baseline_dir = settings.cache_dir / "baselines"
     baseline_dir.mkdir(parents=True, exist_ok=True)
+    agent_metadata = client.agent_metadata()
 
     for agent in client.list_agents_with_vulnerabilities():
         agent_id = agent["agent_id"]
@@ -208,7 +210,7 @@ def detect_new_agents(
         new_agents += 1
         enriched_docs = []
         for source in client.iter_vulnerability_findings(agent_id=agent_id):
-            doc = normalize_finding(source, kev_cves, epss_records, poc_records)
+            doc = normalize_finding(source, kev_cves, epss_records, poc_records, agent_metadata)
             if doc:
                 enriched_docs.append(doc)
 

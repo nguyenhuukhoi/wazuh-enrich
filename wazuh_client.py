@@ -6,6 +6,7 @@ from typing import Any, Iterable
 from opensearchpy import OpenSearch, RequestsHttpConnection, helpers
 
 from config import Settings
+from risk import first_path, first_valid_ip
 
 LOG = logging.getLogger(__name__)
 
@@ -30,6 +31,17 @@ SOURCE_FIELDS = [
     "package.architecture",
     "package.type",
     "@timestamp",
+]
+
+AGENT_METADATA_FIELDS = [
+    "agent.id",
+    "agent.name",
+    "agent.ip",
+    "agent.host.ip",
+    "agent.host.os.*",
+    "host.ip",
+    "host.os.*",
+    "related.ip",
 ]
 
 
@@ -156,6 +168,36 @@ class WazuhIndexerClient:
         body = {"query": query or {"match_all": {}}}
         yield from self._scroll_sources(index, body)
 
+    def agent_metadata(self) -> dict[str, dict[str, Any]]:
+        patterns = [pattern for pattern in self.settings.agent_inventory_index_patterns if pattern]
+        if not patterns:
+            return {}
+        metadata: dict[str, dict[str, Any]] = {}
+        body = {"query": {"match_all": {}}, "_source": AGENT_METADATA_FIELDS}
+        try:
+            sources = self._scroll_sources(",".join(patterns), body, ignore_unavailable=True)
+            for source in sources:
+                agent_id = str(first_path(source, ["agent.id"], ""))
+                if not agent_id:
+                    continue
+                current = metadata.setdefault(agent_id, {})
+                ip = first_valid_ip(source, ["agent.host.ip", "host.ip", "related.ip", "agent.ip"], "")
+                if ip and not current.get("agent_ip"):
+                    current["agent_ip"] = ip
+                agent_name = first_path(source, ["agent.name"], "")
+                if agent_name and not current.get("agent_name"):
+                    current["agent_name"] = agent_name
+                os_name = first_path(source, ["host.os.name", "agent.host.os.name", "host.os.full"], "")
+                if os_name and not current.get("os_name"):
+                    current["os_name"] = os_name
+                os_version = first_path(source, ["host.os.version", "agent.host.os.version"], "")
+                if os_version and not current.get("os_version"):
+                    current["os_version"] = os_version
+        except Exception as exc:
+            LOG.warning("agent_metadata_load_failed patterns=%s error=%s", patterns, exc)
+        LOG.info("agent_metadata_loaded agents=%s patterns=%s", len(metadata), patterns)
+        return metadata
+
     def list_agents_with_vulnerabilities(self) -> list[dict[str, str]]:
         agents: list[dict[str, str]] = []
         after: dict[str, Any] | None = None
@@ -215,7 +257,12 @@ class WazuhIndexerClient:
         LOG.info("bulk_index_done index=%s success=%s errors=%s", index, success, error_count)
         return int(success), error_count
 
-    def _scroll_sources(self, index: str, body: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    def _scroll_sources(
+        self,
+        index: str,
+        body: dict[str, Any],
+        ignore_unavailable: bool = False,
+    ) -> Iterable[dict[str, Any]]:
         scroll_id = None
         try:
             response = self.client.search(
@@ -223,6 +270,7 @@ class WazuhIndexerClient:
                 body=body,
                 scroll=self.settings.scroll_ttl,
                 size=self.settings.page_size,
+                ignore_unavailable=ignore_unavailable,
             )
             scroll_id = response.get("_scroll_id")
             while True:

@@ -92,12 +92,19 @@ sudo chmod 600 /etc/wazuh-enrich/config.yaml
 The default config now uses these production runtime paths:
 
 ```yaml
+WAZUH_VULN_INDEX_PATTERN: wazuh-states-vulnerabilities-*
+AGENT_INVENTORY_INDEX_PATTERNS:
+  - wazuh-states-inventory-system-*
+  - wazuh-states-inventory-networks-*
+
 CACHE_DIR: /var/lib/wazuh-enrich/cache
 STATE_FILE: /var/lib/wazuh-enrich/state.json
 
 POC_BUILD:
   output_file: /var/lib/wazuh-enrich/feeds/cve_poc.csv
 ```
+
+`AGENT_INVENTORY_INDEX_PATTERNS` is used to enrich real agent IP addresses in batch. Wazuh vulnerability documents can contain `agent.ip: 0.0.0.0`; the inventory indices usually contain the real `agent.host.ip`.
 
 Create the environment file:
 
@@ -333,6 +340,7 @@ wazuh-vuln-cve-summary-*    time field: updated_at
 
 The imported dashboard intentionally contains only two panels:
 
+- Impact Filters.
 - Public PoC CVEs Impacting This System.
 - Hosts Affected by Public PoC CVEs.
 
@@ -342,7 +350,13 @@ Dashboard import is optional and separate from enrichment:
 python3 dashboard/manage_saved_objects.py reimport --no-verify-ssl
 ```
 
-The first panel reads `wazuh-vuln-cve-summary-*` with:
+The filter panel uses `wazuh-vuln-enriched-*` and lists only CVEs with:
+
+```text
+public_poc:true
+```
+
+The CVE summary panel reads `wazuh-vuln-cve-summary-*` with:
 
 ```text
 public_poc:true and affected_hosts_count > 0
@@ -375,7 +389,7 @@ curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
 - No findings: check `wazuh-states-vulnerabilities-*`.
 - CISA blocked: set `CISA_KEV_FILE` to a local JSON mirror.
 - PoC not visible: enable `POC_BUILD`, run `python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-poc-feed`, then `python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all`.
-- Agent IP is `0.0.0.0`: rerun `enrich-all`; the enricher skips placeholder IPs and falls back through `agent.host.ip`, `host.ip`, and `related.ip`. If it is still empty, the Wazuh vulnerability document does not contain a real IP.
+- Agent IP is `0.0.0.0`: verify `wazuh-states-inventory-system-*` or `wazuh-states-inventory-networks-*` has `agent.host.ip`, then rerun `enrich-all`. The enricher joins those inventory indices by `agent.id`.
 - Dashboard slow: use summary indices, not raw Wazuh state indices.
 
 ## Tests

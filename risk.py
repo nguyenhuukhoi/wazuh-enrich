@@ -82,6 +82,7 @@ def normalize_finding(
     kev_cves: set[str],
     epss_records: dict[str, EpssRecord],
     poc_records: dict[str, PocRecord] | None = None,
+    agent_metadata: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     cve_id = str(first_path(source, ["vulnerability.id", "vulnerability.cve"], "")).upper()
     if not cve_id.startswith("CVE-"):
@@ -97,14 +98,21 @@ def normalize_finding(
         reason = f"{reason}; public PoC available"
     detected_at = first_path(source, ["vulnerability.detected_at", "@timestamp"], None)
 
+    agent_id = str(first_path(source, ["agent.id"], ""))
+    metadata = (agent_metadata or {}).get(agent_id, {})
+    source_ip = first_valid_ip(source, ["agent.ip", "agent.host.ip", "host.ip", "related.ip"], "")
+    metadata_ip = first_valid_ip(metadata, ["agent_ip", "agent.ip", "agent.host.ip", "host.ip", "related.ip"], "")
+
     doc = {
         "cve_id": cve_id,
         "cve_year": cve_year(cve_id),
-        "agent_id": str(first_path(source, ["agent.id"], "")),
-        "agent_name": first_path(source, ["agent.name"], ""),
-        "agent_ip": first_valid_ip(source, ["agent.ip", "agent.host.ip", "host.ip", "related.ip"], ""),
-        "os_name": first_path(source, ["host.os.name", "agent.host.os.name", "host.os.full"], ""),
-        "os_version": first_path(source, ["host.os.version", "agent.host.os.version"], ""),
+        "agent_id": agent_id,
+        "agent_name": first_path(source, ["agent.name"], "") or metadata.get("agent_name", ""),
+        "agent_ip": source_ip or metadata_ip,
+        "os_name": first_path(source, ["host.os.name", "agent.host.os.name", "host.os.full"], "")
+        or metadata.get("os_name", ""),
+        "os_version": first_path(source, ["host.os.version", "agent.host.os.version"], "")
+        or metadata.get("os_version", ""),
         "package_name": first_path(source, ["package.name"], ""),
         "package_version": first_path(source, ["package.version"], ""),
         "package_architecture": first_path(source, ["package.architecture"], ""),

@@ -175,55 +175,7 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
                 "ignoreTimeout": False,
             },
             "parent": "",
-            "query": PUBLIC_POC_IMPACT_QUERY,
-        },
-        {
-            "id": "priority",
-            "fieldName": "priority",
-            "indexPatternRefName": "control_1_index",
-            "label": "Priority",
-            "type": "list",
-            "options": {
-                "type": "terms",
-                "multiselect": True,
-                "size": 10,
-                "order": "desc",
-                "useTimeFilter": True,
-                "ignoreTimeout": False,
-            },
-            "parent": "",
-        },
-        {
-            "id": "kev",
-            "fieldName": "kev",
-            "indexPatternRefName": "control_2_index",
-            "label": "KEV",
-            "type": "list",
-            "options": {
-                "type": "terms",
-                "multiselect": True,
-                "size": 2,
-                "order": "desc",
-                "useTimeFilter": True,
-                "ignoreTimeout": False,
-            },
-            "parent": "",
-        },
-        {
-            "id": "host",
-            "fieldName": "agent_name",
-            "indexPatternRefName": "control_3_index",
-            "label": "Affected host",
-            "type": "list",
-            "options": {
-                "type": "terms",
-                "multiselect": True,
-                "size": 100,
-                "order": "desc",
-                "useTimeFilter": True,
-                "ignoreTimeout": False,
-            },
-            "parent": "",
+            "query": "public_poc:true",
         },
     ]
     vis_state = {
@@ -244,16 +196,13 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
             "title": title,
             "visState": dumps(vis_state),
             "uiStateJSON": "{}",
-            "description": "Dropdown filters for public PoC CVEs, priority, KEV, and affected host.",
+            "description": "Dropdown filter for public PoC CVEs currently impacting hosts.",
             "version": 1,
             "kibanaSavedObjectMeta": {"searchSourceJSON": search_source(index_ref)},
         },
         "references": [
             {"name": "kibanaSavedObjectMeta.searchSourceJSON.index", "type": "index-pattern", "id": index_ref},
-            {"name": "control_0_index", "type": "index-pattern", "id": CVE_SUMMARY},
-            {"name": "control_1_index", "type": "index-pattern", "id": CVE_SUMMARY},
-            {"name": "control_2_index", "type": "index-pattern", "id": CVE_SUMMARY},
-            {"name": "control_3_index", "type": "index-pattern", "id": ENRICHED},
+            {"name": "control_0_index", "type": "index-pattern", "id": ENRICHED},
         ],
     }
 
@@ -298,11 +247,13 @@ def dashboard_object() -> dict[str, Any]:
             }
         )
 
-    add("search-public-poc", "search", 0, 0, 24, 18)
-    add("search-public-poc-hosts", "search", 24, 0, 24, 18)
+    add("vis-impact-controls", "visualization", 0, 0, 48, 8)
+    add("search-public-poc", "search", 0, 8, 24, 18)
+    add("search-public-poc-hosts", "search", 24, 8, 24, 18)
 
     references = []
     panel_ids = [
+        ("vis-impact-controls", "visualization"),
         ("search-public-poc", "search"),
         ("search-public-poc-hosts", "search"),
     ]
@@ -361,6 +312,7 @@ def build_objects() -> list[dict[str, Any]]:
     return [
         index_pattern(ENRICHED, "wazuh-vuln-enriched-*", "detected_at"),
         index_pattern(CVE_SUMMARY, "wazuh-vuln-cve-summary-*", "updated_at"),
+        controls_vis("vis-impact-controls", "Impact Filters", ENRICHED),
         saved_search(
             "search-public-poc",
             "Public PoC CVEs Impacting This System",

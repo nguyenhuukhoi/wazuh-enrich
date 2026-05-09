@@ -34,6 +34,7 @@ class Settings:
     wazuh_ca_cert: str
     verify_ssl: bool
     wazuh_vuln_index_pattern: str
+    agent_inventory_index_patterns: list[str]
     enriched_index_prefix: str
     cve_summary_index_prefix: str
     host_summary_index_prefix: str
@@ -94,6 +95,12 @@ def load_config(path: str = "config.yaml") -> Settings:
         wazuh_ca_cert=cfg.get("WAZUH_CA_CERT", ""),
         verify_ssl=_as_bool(cfg.get("VERIFY_SSL", True)),
         wazuh_vuln_index_pattern=cfg["WAZUH_VULN_INDEX_PATTERN"],
+        agent_inventory_index_patterns=_as_list(
+            cfg.get(
+                "AGENT_INVENTORY_INDEX_PATTERNS",
+                ["wazuh-states-inventory-system-*", "wazuh-states-inventory-networks-*"],
+            )
+        ),
         enriched_index_prefix=cfg["ENRICHED_INDEX_PREFIX"],
         cve_summary_index_prefix=cfg.get("CVE_SUMMARY_INDEX_PREFIX", "wazuh-vuln-cve-summary"),
         host_summary_index_prefix=cfg.get("HOST_SUMMARY_INDEX_PREFIX", "wazuh-vuln-host-summary"),
@@ -135,3 +142,11 @@ def _poc_build_output(cfg: dict[str, Any]) -> Path | None:
     if poc_build.get("enabled") and poc_build.get("output_file"):
         return Path(str(poc_build["output_file"]))
     return None
+
+
+def _as_list(value: Any) -> list[str]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item)]
+    return [item.strip() for item in str(value).split(",") if item.strip()]

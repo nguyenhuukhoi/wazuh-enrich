@@ -94,12 +94,19 @@ sudo chmod 600 /etc/wazuh-enrich/config.yaml
 Config mặc định đã dùng các runtime path production này:
 
 ```yaml
+WAZUH_VULN_INDEX_PATTERN: wazuh-states-vulnerabilities-*
+AGENT_INVENTORY_INDEX_PATTERNS:
+  - wazuh-states-inventory-system-*
+  - wazuh-states-inventory-networks-*
+
 CACHE_DIR: /var/lib/wazuh-enrich/cache
 STATE_FILE: /var/lib/wazuh-enrich/state.json
 
 POC_BUILD:
   output_file: /var/lib/wazuh-enrich/feeds/cve_poc.csv
 ```
+
+`AGENT_INVENTORY_INDEX_PATTERNS` dùng để enrich IP thật của agent theo batch. Wazuh vulnerability document có thể ghi `agent.ip: 0.0.0.0`; inventory index thường có IP thật ở `agent.host.ip`.
 
 Tạo environment file:
 
@@ -363,8 +370,9 @@ wazuh-vuln-enriched-*       time field: detected_at
 wazuh-vuln-cve-summary-*    time field: updated_at
 ```
 
-Dashboard import chủ động chỉ giữ 2 panel:
+Dashboard import chủ động chỉ giữ các panel cần thiết:
 
+- Impact Filters.
 - Public PoC CVEs Impacting This System.
 - Hosts Affected by Public PoC CVEs.
 
@@ -376,7 +384,13 @@ python3 dashboard/manage_saved_objects.py reimport --no-verify-ssl
 
 Import dashboard không nằm trong flow enrich/daemon. Dashboard chỉ đọc index đã được service cập nhật.
 
-Panel đầu tiên lấy từ `wazuh-vuln-cve-summary-*` với điều kiện:
+Panel filter lấy từ `wazuh-vuln-enriched-*` và chỉ list CVE có:
+
+```text
+public_poc:true
+```
+
+Panel CVE summary lấy từ `wazuh-vuln-cve-summary-*` với điều kiện:
 
 ```text
 public_poc:true and affected_hosts_count > 0
@@ -434,9 +448,9 @@ PoC không hiện:
 
 Agent IP hiện `0.0.0.0`:
 
+- Kiểm tra `wazuh-states-inventory-system-*` hoặc `wazuh-states-inventory-networks-*` có field `agent.host.ip`.
 - Chạy lại `enrich-all`.
-- Enricher sẽ bỏ qua IP placeholder và fallback theo thứ tự `agent.host.ip`, `host.ip`, `related.ip`.
-- Nếu vẫn trống, raw Wazuh vulnerability document không có IP thật.
+- Enricher sẽ join các inventory index đó theo `agent.id` để lấy IP thật.
 
 Dashboard chậm:
 

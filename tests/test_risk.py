@@ -92,3 +92,23 @@ def test_normalize_finding_skips_unspecified_agent_ip_for_host_ip_fallback():
 
     assert doc is not None
     assert doc["agent_ip"] == "10.10.10.25"
+
+
+def test_normalize_finding_uses_inventory_metadata_for_agent_ip():
+    source = {
+        "agent": {"id": "002", "name": "ubuntu-2", "ip": "0.0.0.0"},
+        "vulnerability": {"id": "CVE-2026-0003", "score": {"base": 5.0}},
+        "package": {"name": "kernel", "version": "1"},
+    }
+
+    doc = normalize_finding(
+        source,
+        kev_cves=set(),
+        epss_records={},
+        agent_metadata={"002": {"agent_ip": "10.10.10.26", "os_name": "Ubuntu", "os_version": "24.04"}},
+    )
+
+    assert doc is not None
+    assert doc["agent_ip"] == "10.10.10.26"
+    assert doc["os_name"] == "Ubuntu"
+    assert doc["os_version"] == "24.04"
