@@ -1,4 +1,5 @@
 import logging
+import sys
 from typing import Any
 
 import requests
@@ -148,7 +149,10 @@ class AlertManager:
 
     def send_message(self, message: str) -> None:
         if self.dry_run:
-            LOG.info("dry_run_alert message=%s", message)
+            print("\n=== DRY RUN ALERT ===", file=sys.stderr)
+            print(message, file=sys.stderr)
+            print("=== END DRY RUN ALERT ===\n", file=sys.stderr)
+            LOG.info("dry_run_alert rendered=true")
             return
         if not self.bot_token or not self.chat_id:
             LOG.warning("telegram_not_configured alert_skipped=true")

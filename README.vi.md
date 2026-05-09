@@ -216,6 +216,15 @@ Chạy daemon:
 python3 vuln_enricher.py daemon
 ```
 
+Mặc định log dạng text để đọc terminal dễ hơn, hoặc dùng JSON khi muốn ship log vào collector:
+
+```bash
+python3 vuln_enricher.py --log-format text --dry-run run-once
+python3 vuln_enricher.py --log-format json daemon
+```
+
+Khi chạy `--dry-run`, alert sẽ được in thành block dễ đọc và không gửi Telegram.
+
 ## Daemon Mode
 
 Daemon sẽ chạy theo lịch:

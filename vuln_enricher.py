@@ -30,9 +30,16 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=True)
 
 
-def configure_logging(level: str) -> None:
+class TextFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        return f"{timestamp} {record.levelname:<7} {record.name}: {record.getMessage()}"
+
+
+def configure_logging(level: str, log_format: str = "text") -> None:
     handler = logging.StreamHandler()
-    handler.setFormatter(JsonFormatter())
+    formatter = JsonFormatter() if log_format == "json" else TextFormatter()
+    handler.setFormatter(formatter)
     root = logging.getLogger()
     root.handlers.clear()
     root.addHandler(handler)
@@ -252,6 +259,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     parser.add_argument("--dry-run", action="store_true", help="Do not write indices or send Telegram alerts")
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
+    parser.add_argument(
+        "--log-format",
+        choices=["text", "json"],
+        default="text",
+        help="Console log format. Use json when shipping logs to a collector.",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("sync-feeds")
     sub.add_parser("enrich-all")
@@ -265,7 +278,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    configure_logging(args.log_level)
+    configure_logging(args.log_level, args.log_format)
     try:
         settings = load_config(args.config)
         state = StateStore(settings.state_file)

@@ -48,3 +48,21 @@ def test_alert_dedup_for_same_cve(tmp_path):
 
     assert len(manager.messages) == 1
     assert "CRITICAL - Exploited CVEs detected" in manager.messages[0]
+
+
+def test_dry_run_alert_renders_readable_block(tmp_path, capsys):
+    state = StateStore(tmp_path / "state.json")
+    manager = AlertManager(
+        bot_token="",
+        chat_id="",
+        thresholds={},
+        state=state,
+        dry_run=True,
+    )
+
+    manager.send_message("CRITICAL - Test\n\nSummary:\n- Affected agents: 1")
+
+    captured = capsys.readouterr()
+    assert "=== DRY RUN ALERT ===" in captured.err
+    assert "CRITICAL - Test" in captured.err
+    assert "\\n" not in captured.err
