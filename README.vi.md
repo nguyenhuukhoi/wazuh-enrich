@@ -194,7 +194,7 @@ python3 tools/build_poc_feed.py \
 
 ## Ubuntu Impact Verification
 
-Phần này được bật mặc định. Service dùng Ubuntu OVAL chính thống của Canonical để xác minh CVE/package/fixed version cho Ubuntu agent. Feed được tải theo batch và cache local, không gọi Canonical theo từng CVE hoặc từng agent.
+Phần này được bật mặc định. Service dùng Ubuntu OVAL và Ubuntu OSV chính thống của Canonical để xác minh CVE/package/fixed version cho Ubuntu agent. OVAL dùng cho USN/fixed-version patch data. OSV mirror dữ liệu Ubuntu Security Tracker và có cả CVE/package đã biết bị ảnh hưởng dù chưa có security update. Feed được tải theo batch và cache local, không gọi Canonical theo từng CVE hoặc từng agent.
 
 Config mặc định:
 
@@ -203,6 +203,9 @@ UBUNTU_OVAL:
   enabled: true
   max_age_hours: 24
   base_url: https://security-metadata.canonical.com/oval
+  osv_enabled: true
+  osv_url: https://security-metadata.canonical.com/osv/osv-all.tar.xz
+  osv_max_age_hours: 24
   releases:
     - noble   # Ubuntu 24.04
     - jammy   # Ubuntu 22.04
@@ -223,6 +226,7 @@ vendor_source
 vendor_advisory_url
 vendor_fixed_version
 vendor_severity
+vendor_status
 fix_available
 fix_status
 ubuntu_release
@@ -231,11 +235,13 @@ ubuntu_release
 Ý nghĩa trạng thái:
 
 - `confirmed_affected`: Wazuh finding đang active và Ubuntu OVAL xác nhận installed version thấp hơn fixed version.
-- `likely_affected`: Ubuntu OVAL xác nhận CVE/package, nhưng chưa có fixed version hoặc không đủ dữ liệu để compare version.
+- `likely_affected`: Ubuntu OVAL/OSV xác nhận CVE/package, nhưng chưa có fixed version hoặc không đủ dữ liệu để compare version.
 - `installed_version_at_or_above_fixed`: installed version có vẻ đã bằng hoặc cao hơn fixed version. Nếu Wazuh vẫn báo active thì nên chạy lại vulnerability detection/check inventory.
 - `vendor_not_found`: Wazuh báo CVE nhưng không tìm thấy CVE/package trong Ubuntu OVAL cache của release đó.
 
 Khi nhìn dashboard/report, bạn nên ưu tiên các dòng có `confirmed_affected=true`, `fix_available=true`, kèm `KEV=true` hoặc `public_poc=true`.
+
+Riêng Ubuntu kernel, Wazuh thường trả binary package như `linux-image-6.8.0-36-generic`, còn Canonical tracking CVE theo source package như `linux`. Enricher sẽ map các kernel binary package phổ biến về `linux` để tránh báo sai `vendor_not_found`.
 
 ## Chạy Lần Đầu
 

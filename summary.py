@@ -82,6 +82,7 @@ def build_cve_summary(enriched_docs: list[dict[str, Any]]) -> list[dict[str, Any
             "vendor_fixed_version": highest.get("vendor_fixed_version", ""),
             "vendor_advisory_url": highest.get("vendor_advisory_url", ""),
             "vendor_severity": highest.get("vendor_severity", ""),
+            "vendor_status": highest.get("vendor_status", ""),
             "updated_at": now,
         }
         if public_poc:
@@ -194,6 +195,7 @@ def build_host_cve_impact_summary(enriched_docs: list[dict[str, Any]]) -> list[d
                 "vendor_fixed_version": highest.get("vendor_fixed_version", ""),
                 "vendor_advisory_url": highest.get("vendor_advisory_url", ""),
                 "vendor_severity": highest.get("vendor_severity", ""),
+                "vendor_status": highest.get("vendor_status", ""),
                 "updated_at": now,
             }
         )

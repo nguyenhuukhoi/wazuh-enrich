@@ -5,6 +5,8 @@ import io
 import json
 import logging
 import bz2
+import re
+import tarfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -39,6 +41,19 @@ class UbuntuOvalRecord:
     title: str = ""
     advisory_url: str = ""
     source_url: str = ""
+
+
+@dataclass(frozen=True)
+class UbuntuOsvRecord:
+    cve_id: str
+    release: str
+    package_name: str
+    fixed_version: str = ""
+    severity: str = ""
+    advisory_url: str = ""
+    source_url: str = ""
+    record_id: str = ""
+    status: str = "affected_no_fixed_version"
 
 
 def parse_kev_json(payload: bytes | str) -> set[str]:
@@ -127,6 +142,129 @@ def parse_ubuntu_oval(payload: bytes | str, release: str, source_url: str = "") 
                     source_url=source_url,
                 )
     return records
+
+
+def parse_ubuntu_osv(payload: bytes | str, source_url: str = "") -> dict[tuple[str, str, str], UbuntuOsvRecord]:
+    raw = payload if isinstance(payload, bytes) else payload.encode("utf-8")
+    records: dict[tuple[str, str, str], UbuntuOsvRecord] = {}
+    if raw.lstrip().startswith(b"{"):
+        _merge_ubuntu_osv_record(records, json.loads(raw), source_url)
+        return records
+
+    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:*") as archive:
+        for member in archive:
+            if not member.isfile() or not member.name.endswith(".json"):
+                continue
+            extracted = archive.extractfile(member)
+            if not extracted:
+                continue
+            try:
+                data = json.loads(extracted.read().decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                LOG.warning("ubuntu_osv_record_malformed member=%s error=%s", member.name, exc)
+                continue
+            _merge_ubuntu_osv_record(records, data, source_url)
+    return records
+
+
+def _merge_ubuntu_osv_record(
+    records: dict[tuple[str, str, str], UbuntuOsvRecord],
+    data: dict[str, Any],
+    source_url: str,
+) -> None:
+    if data.get("withdrawn"):
+        return
+    cve_id = _ubuntu_osv_cve_id(data)
+    if not cve_id:
+        return
+    severity = _ubuntu_osv_severity(data)
+    advisory_url = _ubuntu_osv_advisory_url(data, cve_id)
+    record_id = str(data.get("id", ""))
+    for affected in data.get("affected", []):
+        if not isinstance(affected, dict):
+            continue
+        package = affected.get("package") or {}
+        source_package = str(package.get("name") or "")
+        release = _ubuntu_release_from_ecosystem(str(package.get("ecosystem") or ""))
+        if not source_package or not release:
+            continue
+        fixed_version = _ubuntu_osv_fixed_version(affected)
+        status = "fixed_version_available" if fixed_version else "affected_no_fixed_version"
+        packages = {source_package: fixed_version}
+        for binary in (affected.get("ecosystem_specific") or {}).get("binaries", []) or []:
+            if not isinstance(binary, dict):
+                continue
+            binary_name = str(binary.get("binary_name") or "")
+            if binary_name:
+                packages[binary_name] = str(binary.get("binary_version") or fixed_version or "")
+        for package_name, package_fixed_version in packages.items():
+            key = (release, cve_id, package_name)
+            current = records.get(key)
+            if current and current.fixed_version:
+                continue
+            records[key] = UbuntuOsvRecord(
+                cve_id=cve_id,
+                release=release,
+                package_name=package_name,
+                fixed_version=package_fixed_version,
+                severity=severity,
+                advisory_url=advisory_url,
+                source_url=source_url,
+                record_id=record_id,
+                status=status,
+            )
+
+
+def _ubuntu_osv_cve_id(data: dict[str, Any]) -> str:
+    for value in data.get("upstream", []) + data.get("aliases", []):
+        cve_id = str(value).upper()
+        if cve_id.startswith("CVE-"):
+            return cve_id
+    record_id = str(data.get("id", "")).upper()
+    if record_id.startswith("UBUNTU-CVE-"):
+        return record_id.replace("UBUNTU-", "", 1)
+    return ""
+
+
+def _ubuntu_release_from_ecosystem(ecosystem: str) -> str:
+    match = re.search(r"(\d{2}\.\d{2})", ecosystem)
+    if not match:
+        return ""
+    return {
+        "24.04": "noble",
+        "22.04": "jammy",
+        "20.04": "focal",
+        "18.04": "bionic",
+        "16.04": "xenial",
+    }.get(match.group(1), "")
+
+
+def _ubuntu_osv_fixed_version(affected: dict[str, Any]) -> str:
+    for range_info in affected.get("ranges", []) or []:
+        for event in range_info.get("events", []) or []:
+            fixed = event.get("fixed")
+            if fixed:
+                return str(fixed)
+    return ""
+
+
+def _ubuntu_osv_severity(data: dict[str, Any]) -> str:
+    for severity in data.get("severity", []) or []:
+        if severity.get("type") == "Ubuntu":
+            return str(severity.get("score") or "")
+    return ""
+
+
+def _ubuntu_osv_advisory_url(data: dict[str, Any], cve_id: str) -> str:
+    cve_url = ""
+    for reference in data.get("references", []) or []:
+        url = str(reference.get("url") or "")
+        ref_type = str(reference.get("type") or "")
+        if ref_type == "ADVISORY" and "ubuntu.com/security/notices" in url:
+            return url
+        if f"ubuntu.com/security/{cve_id}" in url:
+            cve_url = url
+    return cve_url or f"https://ubuntu.com/security/{cve_id}"
 
 
 def _local_name(tag: str) -> str:
@@ -310,8 +448,10 @@ class FeedSync:
         self.epss_cache = cache_dir / "epss_scores-current.csv.gz"
         self.poc_cache = cache_dir / "cve_poc.csv"
         self.ubuntu_cache_dir = cache_dir / "ubuntu-oval"
+        self.ubuntu_osv_cache = cache_dir / "ubuntu-osv" / "osv-all.tar.xz"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.ubuntu_cache_dir.mkdir(parents=True, exist_ok=True)
+        self.ubuntu_osv_cache.parent.mkdir(parents=True, exist_ok=True)
 
     def sync_kev(self, force: bool = False) -> set[str]:
         if self.kev_file:
@@ -395,8 +535,28 @@ class FeedSync:
                 records.update(parse_ubuntu_oval(cache.read_bytes(), release_name, source_url=self._ubuntu_oval_url(release_name)))
         return records
 
+    def sync_ubuntu_osv(self, force: bool = False) -> dict[tuple[str, str, str], UbuntuOsvRecord]:
+        if not self.ubuntu_oval.get("osv_enabled", self.ubuntu_oval.get("enabled", False)):
+            return {}
+        url = self._ubuntu_osv_url()
+        max_age = timedelta(hours=int(self.ubuntu_oval.get("osv_max_age_hours", self.ubuntu_oval.get("max_age_hours", 24))))
+        if force or not self._fresh(self.ubuntu_osv_cache, max_age):
+            LOG.info("sync_ubuntu_osv url=%s", url)
+            payload = self._read_or_download(url)
+            parse_ubuntu_osv(payload, source_url=url)
+            self._atomic_write(self.ubuntu_osv_cache, payload)
+        return self.load_ubuntu_osv()
+
+    def load_ubuntu_osv(self) -> dict[tuple[str, str, str], UbuntuOsvRecord]:
+        if not self.ubuntu_oval.get("osv_enabled", self.ubuntu_oval.get("enabled", False)):
+            return {}
+        if not self.ubuntu_osv_cache.exists():
+            return {}
+        return parse_ubuntu_osv(self.ubuntu_osv_cache.read_bytes(), source_url=self._ubuntu_osv_url())
+
     def sync_all(self, force: bool = False) -> tuple[set[str], dict[str, EpssRecord], dict[str, PocRecord]]:
         self.sync_ubuntu_oval(force=force)
+        self.sync_ubuntu_osv(force=force)
         return self.sync_kev(force=force), self.sync_epss(force=force), self.sync_poc()
 
     def fingerprints(self) -> dict[str, str | None]:
@@ -404,6 +564,7 @@ class FeedSync:
             "kev": self._file_sha256(self.kev_cache),
             "epss": self._file_sha256(self.epss_cache),
             "poc": self._file_sha256(self.poc_cache),
+            "ubuntu_osv": self._file_sha256(self.ubuntu_osv_cache),
             **{
                 f"ubuntu_oval_{path.stem}": self._file_sha256(path)
                 for path in sorted(self.ubuntu_cache_dir.glob("*.xml.bz2"))
@@ -433,6 +594,12 @@ class FeedSync:
             or "https://security-metadata.canonical.com/oval"
         ).rstrip("/")
         return f"{base_url}/com.ubuntu.{release}.usn.oval.xml.bz2"
+
+    def _ubuntu_osv_url(self) -> str:
+        return str(
+            self.ubuntu_oval.get("osv_url")
+            or "https://security-metadata.canonical.com/osv/osv-all.tar.xz"
+        )
 
     @staticmethod
     def _file_sha256(path: Path) -> str | None:

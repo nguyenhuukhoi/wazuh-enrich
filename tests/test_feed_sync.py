@@ -1,7 +1,9 @@
 import gzip
 import json
+import io
+import tarfile
 
-from feed_sync import FeedSync, parse_epss_csv_gz, parse_kev_json, parse_poc_csv, parse_poc_json, parse_ubuntu_oval
+from feed_sync import FeedSync, parse_epss_csv_gz, parse_kev_json, parse_poc_csv, parse_poc_json, parse_ubuntu_oval, parse_ubuntu_osv
 
 
 def test_parse_kev_json():
@@ -128,3 +130,37 @@ def test_parse_ubuntu_oval_extracts_cve_package_and_fixed_version():
     assert record.fixed_version == "3.0.13-0ubuntu3.5"
     assert record.severity == "High"
     assert record.advisory_url == "https://ubuntu.com/security/notices/USN-9999-1"
+
+
+def test_parse_ubuntu_osv_extracts_source_and_binary_packages():
+    data = {
+        "id": "UBUNTU-CVE-2026-0001",
+        "upstream": ["CVE-2026-0001"],
+        "severity": [{"type": "Ubuntu", "score": "high"}],
+        "affected": [
+            {
+                "package": {"ecosystem": "Ubuntu:24.04:LTS", "name": "linux"},
+                "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}]}],
+                "ecosystem_specific": {
+                    "binaries": [
+                        {"binary_name": "linux-image-6.8.0-36-generic", "binary_version": "6.8.0-100.100"}
+                    ]
+                },
+            }
+        ],
+        "references": [{"type": "REPORT", "url": "https://ubuntu.com/security/CVE-2026-0001"}],
+    }
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:xz") as archive:
+        payload = json.dumps(data).encode("utf-8")
+        info = tarfile.TarInfo("osv/UBUNTU-CVE-2026-0001.json")
+        info.size = len(payload)
+        archive.addfile(info, io.BytesIO(payload))
+
+    records = parse_ubuntu_osv(buffer.getvalue(), source_url="https://example/osv-all.tar.xz")
+
+    source_record = records[("noble", "CVE-2026-0001", "linux")]
+    binary_record = records[("noble", "CVE-2026-0001", "linux-image-6.8.0-36-generic")]
+    assert source_record.status == "affected_no_fixed_version"
+    assert binary_record.fixed_version == "6.8.0-100.100"
+    assert binary_record.severity == "high"

@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from feed_sync import EpssRecord, PocRecord, UbuntuOvalRecord
+from feed_sync import EpssRecord, PocRecord, UbuntuOvalRecord, UbuntuOsvRecord
 
 LOG = logging.getLogger(__name__)
 CVE_YEAR_RE = re.compile(r"^CVE-(\d{4})-\d+$", re.IGNORECASE)
@@ -115,6 +115,7 @@ def verify_ubuntu_impact(
     package_name: str,
     package_version: str,
     ubuntu_records: dict[tuple[str, str, str], UbuntuOvalRecord] | None,
+    ubuntu_osv_records: dict[tuple[str, str, str], UbuntuOsvRecord] | None = None,
 ) -> dict[str, Any]:
     release = ubuntu_release_from_os(os_name, os_version)
     base = {
@@ -125,6 +126,7 @@ def verify_ubuntu_impact(
         "vendor_advisory_url": "",
         "vendor_fixed_version": "",
         "vendor_severity": "",
+        "vendor_status": "",
         "fix_available": False,
         "fix_status": "unknown",
         "ubuntu_release": release,
@@ -140,8 +142,41 @@ def verify_ubuntu_impact(
             }
         )
         return base
-    record = (ubuntu_records or {}).get((release, cve_id, package_name))
-    if not record:
+    osv_record = _find_ubuntu_osv_record(release, cve_id, package_name, ubuntu_osv_records)
+    if osv_record:
+        fixed_version = osv_record.fixed_version
+        fix_available = bool(fixed_version)
+        status = "likely_affected"
+        confidence = "medium"
+        fix_status = "no_fix_yet"
+        if fix_available:
+            fix_status = "fixed_version_available"
+            if package_version:
+                cmp_result = deb_version_compare(package_version, fixed_version)
+                if cmp_result < 0:
+                    status = "confirmed_affected"
+                    confidence = "high"
+                else:
+                    status = "installed_version_at_or_above_fixed"
+        base.update(
+            {
+                "verification_status": status,
+                "verification_source": "ubuntu_osv",
+                "verification_confidence": confidence,
+                "vendor_source": "ubuntu_osv",
+                "vendor_advisory_url": osv_record.advisory_url,
+                "vendor_fixed_version": fixed_version,
+                "vendor_severity": osv_record.severity,
+                "vendor_status": osv_record.status,
+                "fix_available": fix_available,
+                "fix_status": fix_status,
+                "ubuntu_release": release,
+            }
+        )
+        return base
+
+    oval_record = (ubuntu_records or {}).get((release, cve_id, package_name))
+    if not oval_record:
         base.update(
             {
                 "verification_status": "vendor_not_found",
@@ -152,14 +187,14 @@ def verify_ubuntu_impact(
         )
         return base
 
-    fix_available = bool(record.fixed_version)
+    fix_available = bool(oval_record.fixed_version)
     status = "likely_affected"
     confidence = "medium"
     fix_status = "no_fix_yet"
     if fix_available:
         fix_status = "fixed_version_available"
         if package_version:
-            cmp_result = deb_version_compare(package_version, record.fixed_version)
+            cmp_result = deb_version_compare(package_version, oval_record.fixed_version)
             if cmp_result < 0:
                 status = "confirmed_affected"
                 confidence = "high"
@@ -173,15 +208,37 @@ def verify_ubuntu_impact(
             "verification_source": "ubuntu_oval",
             "verification_confidence": confidence,
             "vendor_source": "ubuntu_oval",
-            "vendor_advisory_url": record.advisory_url,
-            "vendor_fixed_version": record.fixed_version,
-            "vendor_severity": record.severity,
+            "vendor_advisory_url": oval_record.advisory_url,
+            "vendor_fixed_version": oval_record.fixed_version,
+            "vendor_severity": oval_record.severity,
+            "vendor_status": "fixed_version_available" if fix_available else "affected_no_fixed_version",
             "fix_available": fix_available,
             "fix_status": fix_status,
             "ubuntu_release": release,
         }
     )
     return base
+
+
+def _find_ubuntu_osv_record(
+    release: str,
+    cve_id: str,
+    package_name: str,
+    ubuntu_osv_records: dict[tuple[str, str, str], UbuntuOsvRecord] | None,
+) -> UbuntuOsvRecord | None:
+    records = ubuntu_osv_records or {}
+    for candidate in ubuntu_package_candidates(package_name):
+        record = records.get((release, cve_id, candidate))
+        if record:
+            return record
+    return None
+
+
+def ubuntu_package_candidates(package_name: str) -> list[str]:
+    candidates = [package_name]
+    if re.match(r"^linux-(image|modules|headers|tools)-\d", package_name or ""):
+        candidates.append("linux")
+    return list(dict.fromkeys(candidate for candidate in candidates if candidate))
 
 
 def deb_version_compare(left: str, right: str) -> int:
@@ -245,6 +302,7 @@ def normalize_finding(
     poc_records: dict[str, PocRecord] | None = None,
     agent_metadata: dict[str, dict[str, Any]] | None = None,
     ubuntu_records: dict[tuple[str, str, str], UbuntuOvalRecord] | None = None,
+    ubuntu_osv_records: dict[tuple[str, str, str], UbuntuOsvRecord] | None = None,
 ) -> dict[str, Any] | None:
     cve_id = str(first_path(source, ["vulnerability.id", "vulnerability.cve"], "")).upper()
     if not cve_id.startswith("CVE-"):
@@ -269,7 +327,15 @@ def normalize_finding(
     os_version = first_path(source, ["host.os.version", "agent.host.os.version"], "") or metadata.get("os_version", "")
     package_name = first_path(source, ["package.name"], "")
     package_version = first_path(source, ["package.version"], "")
-    verification = verify_ubuntu_impact(cve_id, os_name, os_version, package_name, package_version, ubuntu_records)
+    verification = verify_ubuntu_impact(
+        cve_id,
+        os_name,
+        os_version,
+        package_name,
+        package_version,
+        ubuntu_records,
+        ubuntu_osv_records,
+    )
 
     doc = {
         "cve_id": cve_id,

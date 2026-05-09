@@ -188,7 +188,7 @@ poc_sources
 
 ## Ubuntu Impact Verification
 
-Ubuntu verification is enabled by default and uses Canonical Ubuntu OVAL data. The service downloads the OVAL files in batch, caches them locally, and never calls Canonical per CVE or per agent.
+Ubuntu verification is enabled by default and uses Canonical Ubuntu OVAL plus Ubuntu OSV data. OVAL gives USN/fixed-version patch data. OSV mirrors Ubuntu Security Tracker CVE records and includes known affected packages even when a security update is not yet available. The service downloads these feeds in batch, caches them locally, and never calls Canonical per CVE or per agent.
 
 Default config:
 
@@ -197,6 +197,9 @@ UBUNTU_OVAL:
   enabled: true
   max_age_hours: 24
   base_url: https://security-metadata.canonical.com/oval
+  osv_enabled: true
+  osv_url: https://security-metadata.canonical.com/osv/osv-all.tar.xz
+  osv_max_age_hours: 24
   releases:
     - noble   # Ubuntu 24.04
     - jammy   # Ubuntu 22.04
@@ -217,6 +220,7 @@ vendor_source
 vendor_advisory_url
 vendor_fixed_version
 vendor_severity
+vendor_status
 fix_available
 fix_status
 ubuntu_release
@@ -225,11 +229,13 @@ ubuntu_release
 Important statuses:
 
 - `confirmed_affected`: Wazuh finding is active and Ubuntu OVAL says the installed package version is lower than the fixed version.
-- `likely_affected`: Ubuntu OVAL confirms the CVE/package, but the fixed version is missing or the installed version cannot be compared.
+- `likely_affected`: Ubuntu OVAL/OSV confirms the CVE/package, but the fixed version is missing or the installed version cannot be compared.
 - `installed_version_at_or_above_fixed`: the installed version appears to be at or above the Ubuntu fixed version. Re-run Wazuh vulnerability detection if this still appears as active.
 - `vendor_not_found`: Wazuh reported the CVE, but the CVE/package was not found in the cached Ubuntu OVAL feed for that release.
 
 This makes PoC/KEV findings easier to triage because a high-priority row can now show whether Canonical confirms the host package is affected and whether a fixed version exists.
+
+For Ubuntu kernel packages, Wazuh usually reports binary package names such as `linux-image-6.8.0-36-generic`. Canonical tracks kernel vulnerabilities primarily under source package names such as `linux`. The enricher maps common kernel binary package names back to `linux` so these CVEs do not incorrectly show as `vendor_not_found`.
 
 ## First Run
 

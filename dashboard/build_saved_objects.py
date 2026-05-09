@@ -343,6 +343,7 @@ def build_objects() -> list[dict[str, Any]]:
         "vendor_fixed_version",
         "vendor_advisory_url",
         "vendor_severity",
+        "vendor_status",
         "poc_references",
         "reason",
     ]
@@ -364,6 +365,7 @@ def build_objects() -> list[dict[str, Any]]:
         "vendor_fixed_version",
         "vendor_advisory_url",
         "vendor_severity",
+        "vendor_status",
         "finding_count",
         "epss_score",
         "cvss_score",

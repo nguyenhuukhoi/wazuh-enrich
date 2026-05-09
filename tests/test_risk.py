@@ -1,6 +1,6 @@
 from feed_sync import EpssRecord, PocRecord
-from feed_sync import UbuntuOvalRecord
-from risk import calculate_risk_score, classify_priority, deb_version_compare, first_valid_ip, normalize_finding, verify_ubuntu_impact
+from feed_sync import UbuntuOvalRecord, UbuntuOsvRecord
+from risk import calculate_risk_score, classify_priority, deb_version_compare, first_valid_ip, normalize_finding, ubuntu_package_candidates, verify_ubuntu_impact
 
 
 def test_priority_p0_for_kev():
@@ -185,3 +185,37 @@ def test_normalize_finding_adds_ubuntu_verification_fields():
     assert doc is not None
     assert doc["verification_status"] == "confirmed_affected"
     assert doc["ubuntu_release"] == "noble"
+
+
+def test_verify_ubuntu_impact_uses_osv_for_kernel_binary_source_package_match():
+    records = {
+        ("noble", "CVE-2026-23231", "linux"): UbuntuOsvRecord(
+            cve_id="CVE-2026-23231",
+            release="noble",
+            package_name="linux",
+            severity="high",
+            advisory_url="https://ubuntu.com/security/CVE-2026-23231",
+        )
+    }
+
+    result = verify_ubuntu_impact(
+        "CVE-2026-23231",
+        "Ubuntu",
+        "24.04",
+        "linux-image-6.8.0-36-generic",
+        "6.8.0-36.36",
+        ubuntu_records={},
+        ubuntu_osv_records=records,
+    )
+
+    assert result["verification_status"] == "likely_affected"
+    assert result["verification_source"] == "ubuntu_osv"
+    assert result["fix_available"] is False
+    assert result["vendor_status"] == "affected_no_fixed_version"
+
+
+def test_ubuntu_package_candidates_maps_generic_kernel_binary_to_linux_source():
+    assert ubuntu_package_candidates("linux-image-6.8.0-36-generic") == [
+        "linux-image-6.8.0-36-generic",
+        "linux",
+    ]

@@ -55,6 +55,9 @@ UBUNTU_OVAL:
   enabled: true
   max_age_hours: 24
   base_url: https://security-metadata.canonical.com/oval
+  osv_enabled: true
+  osv_url: https://security-metadata.canonical.com/osv/osv-all.tar.xz
+  osv_max_age_hours: 24
   releases:
     - noble   # Ubuntu 24.04
     - jammy   # Ubuntu 22.04
@@ -76,6 +79,7 @@ ALERT_THRESHOLDS:
 SCHEDULE:
   kev_sync_seconds: 3600
   epss_sync_seconds: 86400
+  ubuntu_osv_sync_seconds: 86400
   enrichment_seconds: 900
   full_refresh_seconds: 86400
   detect_new_agents_seconds: 300
