@@ -2,7 +2,7 @@
 
 English version: [README.md](README.md)
 
-Service enrich vulnerability findings của Wazuh 4.14.x bằng CISA KEV, FIRST EPSS và PoC metadata. Service đọc findings từ Wazuh Indexer theo batch, ghi enriched/summary index riêng, gửi alert dạng tổng hợp, và phục vụ dashboard overview.
+Service enrich vulnerability findings của Wazuh 4.14.x bằng CISA KEV, FIRST EPSS, PoC metadata và Ubuntu OVAL verification. Service đọc findings từ Wazuh Indexer theo batch, xác minh package Ubuntu/fixed version bằng metadata chính thống của Canonical, ghi enriched/summary index riêng, gửi alert dạng tổng hợp, và phục vụ dashboard overview.
 
 Không dùng NVD trong phase này. Không gọi EPSS API theo từng CVE. Không query từng agent liên tục.
 
@@ -11,7 +11,7 @@ Không dùng NVD trong phase này. Không gọi EPSS API theo từng CVE. Không
 ```text
 Wazuh vulnerability findings
         ↓
-sync KEV + EPSS + build/sync PoC feed
+sync KEV + EPSS + build/sync PoC feed + Ubuntu OVAL
         ↓
 enrich findings
         ↓
@@ -28,6 +28,7 @@ Daemon tự làm:
 - Sync EPSS mỗi 24 giờ.
 - Build PoC feed từ Exploit-DB metadata nếu bật `POC_BUILD.enabled`.
 - Sync PoC metadata.
+- Sync Ubuntu OVAL mỗi 24 giờ để xác minh package bị ảnh hưởng và fixed version.
 - Enrich incremental mỗi 15 phút.
 - Full refresh mỗi 24 giờ hoặc khi feed đổi.
 - Detect agent mới mỗi 5 phút.
@@ -190,6 +191,51 @@ python3 tools/build_poc_feed.py \
   --exploitdb-csv https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv \
   --output /var/lib/wazuh-enrich/feeds/cve_poc.csv
 ```
+
+## Ubuntu Impact Verification
+
+Phần này được bật mặc định. Service dùng Ubuntu OVAL chính thống của Canonical để xác minh CVE/package/fixed version cho Ubuntu agent. Feed được tải theo batch và cache local, không gọi Canonical theo từng CVE hoặc từng agent.
+
+Config mặc định:
+
+```yaml
+UBUNTU_OVAL:
+  enabled: true
+  max_age_hours: 24
+  base_url: https://security-metadata.canonical.com/oval
+  releases:
+    - noble   # Ubuntu 24.04
+    - jammy   # Ubuntu 22.04
+    - focal   # Ubuntu 20.04
+  urls:
+    noble: https://security-metadata.canonical.com/oval/com.ubuntu.noble.usn.oval.xml.bz2
+    jammy: https://security-metadata.canonical.com/oval/com.ubuntu.jammy.usn.oval.xml.bz2
+    focal: https://security-metadata.canonical.com/oval/com.ubuntu.focal.usn.oval.xml.bz2
+```
+
+Field được ghi thêm vào enriched/summary docs:
+
+```text
+verification_status
+verification_source
+verification_confidence
+vendor_source
+vendor_advisory_url
+vendor_fixed_version
+vendor_severity
+fix_available
+fix_status
+ubuntu_release
+```
+
+Ý nghĩa trạng thái:
+
+- `confirmed_affected`: Wazuh finding đang active và Ubuntu OVAL xác nhận installed version thấp hơn fixed version.
+- `likely_affected`: Ubuntu OVAL xác nhận CVE/package, nhưng chưa có fixed version hoặc không đủ dữ liệu để compare version.
+- `installed_version_at_or_above_fixed`: installed version có vẻ đã bằng hoặc cao hơn fixed version. Nếu Wazuh vẫn báo active thì nên chạy lại vulnerability detection/check inventory.
+- `vendor_not_found`: Wazuh báo CVE nhưng không tìm thấy CVE/package trong Ubuntu OVAL cache của release đó.
+
+Khi nhìn dashboard/report, bạn nên ưu tiên các dòng có `confirmed_affected=true`, `fix_available=true`, kèm `KEV=true` hoặc `public_poc=true`.
 
 ## Chạy Lần Đầu
 

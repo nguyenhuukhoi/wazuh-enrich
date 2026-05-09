@@ -48,6 +48,22 @@ POC_BUILD:
   # poc_in_github: https://github.com/nomi-sec/PoC-in-GitHub
   # trickest_cve: https://github.com/trickest/cve
 
+# Ubuntu official verification feed. This is used to verify whether an active
+# Wazuh finding is confirmed by Canonical metadata and whether a fixed package
+# version exists. URLs can be HTTPS or local mirrored files.
+UBUNTU_OVAL:
+  enabled: true
+  max_age_hours: 24
+  base_url: https://security-metadata.canonical.com/oval
+  releases:
+    - noble   # Ubuntu 24.04
+    - jammy   # Ubuntu 22.04
+    - focal   # Ubuntu 20.04
+  urls:
+    noble: https://security-metadata.canonical.com/oval/com.ubuntu.noble.usn.oval.xml.bz2
+    jammy: https://security-metadata.canonical.com/oval/com.ubuntu.jammy.usn.oval.xml.bz2
+    focal: https://security-metadata.canonical.com/oval/com.ubuntu.focal.usn.oval.xml.bz2
+
 TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
 TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
 

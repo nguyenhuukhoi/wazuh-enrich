@@ -50,7 +50,10 @@ def configure_logging(level: str, log_format: str = "text") -> None:
 LOG = logging.getLogger("vuln_enricher")
 
 
-def load_local_or_sync_feeds(settings: Settings, force: bool = False) -> tuple[set[str], dict[str, Any], dict[str, Any]]:
+def load_local_or_sync_feeds(
+    settings: Settings,
+    force: bool = False,
+) -> tuple[set[str], dict[str, Any], dict[str, Any], dict[tuple[str, str, str], Any]]:
     feed_sync = FeedSync(
         cache_dir=settings.cache_dir,
         kev_url=settings.cisa_kev_url,
@@ -58,8 +61,11 @@ def load_local_or_sync_feeds(settings: Settings, force: bool = False) -> tuple[s
         timeout=settings.request_timeout_seconds,
         kev_file=settings.cisa_kev_file,
         poc_file=settings.poc_feed_file,
+        ubuntu_oval=settings.ubuntu_oval,
     )
-    return feed_sync.sync_all(force=force)
+    kev, epss, poc = feed_sync.sync_all(force=force)
+    ubuntu = feed_sync.sync_ubuntu_oval(force=False)
+    return kev, epss, poc, ubuntu
 
 
 def build_feed_sync(settings: Settings) -> FeedSync:
@@ -70,12 +76,21 @@ def build_feed_sync(settings: Settings) -> FeedSync:
         timeout=settings.request_timeout_seconds,
         kev_file=settings.cisa_kev_file,
         poc_file=settings.poc_feed_file,
+        ubuntu_oval=settings.ubuntu_oval,
     )
 
 
 def sync_feeds(settings: Settings, force: bool = False) -> None:
-    kev_cves, epss, poc = build_feed_sync(settings).sync_all(force=force)
-    LOG.info("feeds_ready kev_cves=%s epss_records=%s poc_records=%s", len(kev_cves), len(epss), len(poc))
+    feed_sync = build_feed_sync(settings)
+    kev_cves, epss, poc = feed_sync.sync_all(force=force)
+    ubuntu = feed_sync.sync_ubuntu_oval(force=False)
+    LOG.info(
+        "feeds_ready kev_cves=%s epss_records=%s poc_records=%s ubuntu_oval_records=%s",
+        len(kev_cves),
+        len(epss),
+        len(poc),
+        len(ubuntu),
+    )
 
 
 def sync_poc(settings: Settings) -> None:
@@ -110,7 +125,7 @@ def enrich(
     dry_run: bool = False,
     send_alerts: bool = True,
 ) -> dict[str, Any]:
-    kev_cves, epss_records, poc_records = load_local_or_sync_feeds(settings)
+    kev_cves, epss_records, poc_records, ubuntu_records = load_local_or_sync_feeds(settings)
     since = None if full or agent_id else state.data.get("last_processed_timestamp")
     enriched_docs: list[dict[str, Any]] = []
     malformed = 0
@@ -119,7 +134,7 @@ def enrich(
 
     for source in client.iter_vulnerability_findings(agent_id=agent_id, since=since):
         try:
-            doc = normalize_finding(source, kev_cves, epss_records, poc_records, agent_metadata)
+            doc = normalize_finding(source, kev_cves, epss_records, poc_records, agent_metadata, ubuntu_records)
             if not doc:
                 malformed += 1
                 continue
@@ -193,7 +208,7 @@ def detect_new_agents(
     state: StateStore,
     dry_run: bool = False,
 ) -> dict[str, int]:
-    kev_cves, epss_records, poc_records = load_local_or_sync_feeds(settings)
+    kev_cves, epss_records, poc_records, ubuntu_records = load_local_or_sync_feeds(settings)
     alerts = AlertManager(
         bot_token=settings.telegram_bot_token,
         chat_id=settings.telegram_chat_id,
@@ -214,7 +229,7 @@ def detect_new_agents(
         new_agents += 1
         enriched_docs = []
         for source in client.iter_vulnerability_findings(agent_id=agent_id):
-            doc = normalize_finding(source, kev_cves, epss_records, poc_records, agent_metadata)
+            doc = normalize_finding(source, kev_cves, epss_records, poc_records, agent_metadata, ubuntu_records)
             if doc:
                 enriched_docs.append(doc)
 
@@ -266,6 +281,7 @@ def daemon(settings: Settings, dry_run: bool = False) -> None:
         "epss_sync_seconds": settings.schedule.get("epss_sync_seconds", 86400),
         "enrichment_seconds": settings.schedule.get("enrichment_seconds", 900),
         "full_refresh_seconds": settings.schedule.get("full_refresh_seconds", 86400),
+        "ubuntu_oval_sync_seconds": settings.schedule.get("ubuntu_oval_sync_seconds", 86400),
         "poc_build_seconds": int(settings.poc_build.get("interval_seconds", 86400)),
         "detect_new_agents_seconds": settings.schedule.get("detect_new_agents_seconds", 300),
     }
@@ -295,6 +311,12 @@ def daemon(settings: Settings, dry_run: bool = False) -> None:
                 after = feed_sync.fingerprints()
                 feeds_changed = feeds_changed or before.get("poc") != after.get("poc")
                 last_run["poc_build_seconds"] = now
+            if settings.ubuntu_oval.get("enabled") and now - last_run["ubuntu_oval_sync_seconds"] >= schedule["ubuntu_oval_sync_seconds"]:
+                before = feed_sync.fingerprints()
+                feed_sync.sync_ubuntu_oval()
+                after = feed_sync.fingerprints()
+                feeds_changed = feeds_changed or before != after
+                last_run["ubuntu_oval_sync_seconds"] = now
             before = feed_sync.fingerprints()
             feed_sync.sync_poc()
             after = feed_sync.fingerprints()

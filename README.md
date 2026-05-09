@@ -2,7 +2,7 @@
 
 Vietnamese version: [README.vi.md](README.vi.md)
 
-Production-oriented vulnerability enrichment for Wazuh 4.14.x. The service reads Wazuh vulnerability findings from Wazuh Indexer, enriches them with CISA KEV, FIRST EPSS, and PoC metadata, writes enriched/summary indices, and sends aggregate alerts.
+Production-oriented vulnerability enrichment for Wazuh 4.14.x. The service reads Wazuh vulnerability findings from Wazuh Indexer, enriches them with CISA KEV, FIRST EPSS, PoC metadata, and Ubuntu OVAL verification, writes enriched/summary indices, and sends aggregate alerts.
 
 This phase does not use NVD, does not call EPSS per CVE, and does not continuously query each agent.
 
@@ -11,7 +11,7 @@ This phase does not use NVD, does not call EPSS per CVE, and does not continuous
 ```text
 Wazuh vulnerability findings
         ↓
-sync KEV + EPSS + build/sync PoC feed
+sync KEV + EPSS + build/sync PoC feed + Ubuntu OVAL
         ↓
 enrich findings
         ↓
@@ -28,6 +28,7 @@ Daemon mode automatically:
 - Syncs EPSS every 24 hours.
 - Builds PoC feed from Exploit-DB metadata when `POC_BUILD.enabled` is true.
 - Syncs PoC metadata.
+- Syncs Ubuntu OVAL every 24 hours to verify affected packages and fixed versions.
 - Runs incremental enrichment every 15 minutes.
 - Runs full refresh every 24 hours or when feed fingerprints change.
 - Detects new agents every 5 minutes.
@@ -184,6 +185,51 @@ poc_count
 poc_references
 poc_sources
 ```
+
+## Ubuntu Impact Verification
+
+Ubuntu verification is enabled by default and uses Canonical Ubuntu OVAL data. The service downloads the OVAL files in batch, caches them locally, and never calls Canonical per CVE or per agent.
+
+Default config:
+
+```yaml
+UBUNTU_OVAL:
+  enabled: true
+  max_age_hours: 24
+  base_url: https://security-metadata.canonical.com/oval
+  releases:
+    - noble   # Ubuntu 24.04
+    - jammy   # Ubuntu 22.04
+    - focal   # Ubuntu 20.04
+  urls:
+    noble: https://security-metadata.canonical.com/oval/com.ubuntu.noble.usn.oval.xml.bz2
+    jammy: https://security-metadata.canonical.com/oval/com.ubuntu.jammy.usn.oval.xml.bz2
+    focal: https://security-metadata.canonical.com/oval/com.ubuntu.focal.usn.oval.xml.bz2
+```
+
+Fields written to enriched and summary docs:
+
+```text
+verification_status
+verification_source
+verification_confidence
+vendor_source
+vendor_advisory_url
+vendor_fixed_version
+vendor_severity
+fix_available
+fix_status
+ubuntu_release
+```
+
+Important statuses:
+
+- `confirmed_affected`: Wazuh finding is active and Ubuntu OVAL says the installed package version is lower than the fixed version.
+- `likely_affected`: Ubuntu OVAL confirms the CVE/package, but the fixed version is missing or the installed version cannot be compared.
+- `installed_version_at_or_above_fixed`: the installed version appears to be at or above the Ubuntu fixed version. Re-run Wazuh vulnerability detection if this still appears as active.
+- `vendor_not_found`: Wazuh reported the CVE, but the CVE/package was not found in the cached Ubuntu OVAL feed for that release.
+
+This makes PoC/KEV findings easier to triage because a high-priority row can now show whether Canonical confirms the host package is affected and whether a fixed version exists.
 
 ## First Run
 

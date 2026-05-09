@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from feed_sync import EpssRecord, PocRecord
+from feed_sync import EpssRecord, PocRecord, UbuntuOvalRecord
 
 LOG = logging.getLogger(__name__)
 CVE_YEAR_RE = re.compile(r"^CVE-(\d{4})-\d+$", re.IGNORECASE)
@@ -88,12 +88,163 @@ def calculate_risk_score(kev: bool, epss_score: float, cvss_score: float) -> flo
     return round((epss_score * 50.0) + (cvss_score * 3.0) + (30.0 if kev else 0.0), 2)
 
 
+UBUNTU_RELEASE_BY_VERSION = {
+    "24.04": "noble",
+    "22.04": "jammy",
+    "20.04": "focal",
+    "18.04": "bionic",
+    "16.04": "xenial",
+}
+
+
+def ubuntu_release_from_os(os_name: str, os_version: str) -> str:
+    text = f"{os_name} {os_version}".lower()
+    for release in ["noble", "jammy", "focal", "bionic", "xenial"]:
+        if release in text:
+            return release
+    for version, release in UBUNTU_RELEASE_BY_VERSION.items():
+        if version in text:
+            return release
+    return ""
+
+
+def verify_ubuntu_impact(
+    cve_id: str,
+    os_name: str,
+    os_version: str,
+    package_name: str,
+    package_version: str,
+    ubuntu_records: dict[tuple[str, str, str], UbuntuOvalRecord] | None,
+) -> dict[str, Any]:
+    release = ubuntu_release_from_os(os_name, os_version)
+    base = {
+        "verification_status": "not_verified",
+        "verification_source": "",
+        "verification_confidence": "none",
+        "vendor_source": "",
+        "vendor_advisory_url": "",
+        "vendor_fixed_version": "",
+        "vendor_severity": "",
+        "fix_available": False,
+        "fix_status": "unknown",
+        "ubuntu_release": release,
+    }
+    if "ubuntu" not in (os_name or "").lower() and not release:
+        return base
+    if not release:
+        base.update(
+            {
+                "verification_status": "needs_manual_check",
+                "verification_confidence": "low",
+                "vendor_source": "ubuntu_oval",
+            }
+        )
+        return base
+    record = (ubuntu_records or {}).get((release, cve_id, package_name))
+    if not record:
+        base.update(
+            {
+                "verification_status": "vendor_not_found",
+                "verification_confidence": "low",
+                "verification_source": "ubuntu_oval",
+                "vendor_source": "ubuntu_oval",
+            }
+        )
+        return base
+
+    fix_available = bool(record.fixed_version)
+    status = "likely_affected"
+    confidence = "medium"
+    fix_status = "no_fix_yet"
+    if fix_available:
+        fix_status = "fixed_version_available"
+        if package_version:
+            cmp_result = deb_version_compare(package_version, record.fixed_version)
+            if cmp_result < 0:
+                status = "confirmed_affected"
+                confidence = "high"
+            else:
+                status = "installed_version_at_or_above_fixed"
+                confidence = "medium"
+
+    base.update(
+        {
+            "verification_status": status,
+            "verification_source": "ubuntu_oval",
+            "verification_confidence": confidence,
+            "vendor_source": "ubuntu_oval",
+            "vendor_advisory_url": record.advisory_url,
+            "vendor_fixed_version": record.fixed_version,
+            "vendor_severity": record.severity,
+            "fix_available": fix_available,
+            "fix_status": fix_status,
+            "ubuntu_release": release,
+        }
+    )
+    return base
+
+
+def deb_version_compare(left: str, right: str) -> int:
+    left_epoch, left_upstream, left_revision = _split_deb_version(left)
+    right_epoch, right_upstream, right_revision = _split_deb_version(right)
+    for left_part, right_part in [
+        (left_epoch, right_epoch),
+        (left_upstream, right_upstream),
+        (left_revision, right_revision),
+    ]:
+        result = _compare_deb_part(left_part, right_part)
+        if result:
+            return result
+    return 0
+
+
+def _split_deb_version(version: str) -> tuple[str, str, str]:
+    epoch = "0"
+    rest = str(version or "")
+    if ":" in rest:
+        epoch, rest = rest.split(":", 1)
+    if "-" in rest:
+        upstream, revision = rest.rsplit("-", 1)
+    else:
+        upstream, revision = rest, "0"
+    return epoch, upstream, revision
+
+
+def _compare_deb_part(left: str, right: str) -> int:
+    left_tokens = _deb_tokens(left)
+    right_tokens = _deb_tokens(right)
+    for left_token, right_token in zip(left_tokens, right_tokens):
+        result = _compare_deb_token(left_token, right_token)
+        if result:
+            return result
+    if len(left_tokens) == len(right_tokens):
+        return 0
+    return -1 if len(left_tokens) < len(right_tokens) else 1
+
+
+def _deb_tokens(value: str) -> list[str]:
+    return re.findall(r"\d+|[A-Za-z]+|~|[^A-Za-z0-9~]+", value or "")
+
+
+def _compare_deb_token(left: str, right: str) -> int:
+    if left == right:
+        return 0
+    if left == "~" or right == "~":
+        return -1 if left == "~" else 1
+    if left.isdigit() and right.isdigit():
+        left_int = int(left.lstrip("0") or "0")
+        right_int = int(right.lstrip("0") or "0")
+        return (left_int > right_int) - (left_int < right_int)
+    return (left > right) - (left < right)
+
+
 def normalize_finding(
     source: dict[str, Any],
     kev_cves: set[str],
     epss_records: dict[str, EpssRecord],
     poc_records: dict[str, PocRecord] | None = None,
     agent_metadata: dict[str, dict[str, Any]] | None = None,
+    ubuntu_records: dict[tuple[str, str, str], UbuntuOvalRecord] | None = None,
 ) -> dict[str, Any] | None:
     cve_id = str(first_path(source, ["vulnerability.id", "vulnerability.cve"], "")).upper()
     if not cve_id.startswith("CVE-"):
@@ -114,18 +265,22 @@ def normalize_finding(
     source_ip = first_valid_ip(source, ["agent.ip", "agent.host.ip", "host.ip", "related.ip"], "")
     metadata_ip = first_valid_ip(metadata, ["agent_ip", "agent.ip", "agent.host.ip", "host.ip", "related.ip"], "")
 
+    os_name = first_path(source, ["host.os.name", "agent.host.os.name", "host.os.full"], "") or metadata.get("os_name", "")
+    os_version = first_path(source, ["host.os.version", "agent.host.os.version"], "") or metadata.get("os_version", "")
+    package_name = first_path(source, ["package.name"], "")
+    package_version = first_path(source, ["package.version"], "")
+    verification = verify_ubuntu_impact(cve_id, os_name, os_version, package_name, package_version, ubuntu_records)
+
     doc = {
         "cve_id": cve_id,
         "cve_year": cve_year(cve_id),
         "agent_id": agent_id,
         "agent_name": first_path(source, ["agent.name"], "") or metadata.get("agent_name", ""),
         "agent_ip": source_ip or metadata_ip,
-        "os_name": first_path(source, ["host.os.name", "agent.host.os.name", "host.os.full"], "")
-        or metadata.get("os_name", ""),
-        "os_version": first_path(source, ["host.os.version", "agent.host.os.version"], "")
-        or metadata.get("os_version", ""),
-        "package_name": first_path(source, ["package.name"], ""),
-        "package_version": first_path(source, ["package.version"], ""),
+        "os_name": os_name,
+        "os_version": os_version,
+        "package_name": package_name,
+        "package_version": package_version,
         "package_architecture": first_path(source, ["package.architecture"], ""),
         "package_type": first_path(source, ["package.type"], ""),
         "kev": kev,
@@ -145,6 +300,7 @@ def normalize_finding(
         "last_detected_at": detected_at,
         "recommended_action": recommended_action(priority, kev, epss.score),
         "enriched_at": datetime.now(timezone.utc).isoformat(),
+        **verification,
     }
     if poc:
         doc["impact_cve_id"] = cve_id

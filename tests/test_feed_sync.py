@@ -1,7 +1,7 @@
 import gzip
 import json
 
-from feed_sync import FeedSync, parse_epss_csv_gz, parse_kev_json, parse_poc_csv, parse_poc_json
+from feed_sync import FeedSync, parse_epss_csv_gz, parse_kev_json, parse_poc_csv, parse_poc_json, parse_ubuntu_oval
 
 
 def test_parse_kev_json():
@@ -84,3 +84,47 @@ def test_parse_poc_json():
 
     assert records["CVE-2026-0001"].count == 2
     assert "internal" in records["CVE-2026-0001"].sources
+
+
+def test_parse_ubuntu_oval_extracts_cve_package_and_fixed_version():
+    payload = """<?xml version="1.0" encoding="UTF-8"?>
+<oval_definitions xmlns="http://oval.mitre.org/XMLSchema/oval-definitions-5"
+ xmlns:linux-def="http://oval.mitre.org/XMLSchema/oval-definitions-5#linux">
+  <definitions>
+    <definition id="oval:com.ubuntu.noble:def:1">
+      <metadata>
+        <title>CVE-2026-0001 on Ubuntu 24.04 LTS</title>
+        <reference source="CVE" ref_id="CVE-2026-0001" ref_url="https://ubuntu.com/security/CVE-2026-0001"/>
+        <reference source="USN" ref_id="USN-9999-1" ref_url="https://ubuntu.com/security/notices/USN-9999-1"/>
+        <advisory><severity>High</severity></advisory>
+      </metadata>
+      <criteria>
+        <criterion test_ref="oval:com.ubuntu.noble:tst:1"/>
+      </criteria>
+    </definition>
+  </definitions>
+  <tests>
+    <linux-def:dpkginfo_test id="oval:com.ubuntu.noble:tst:1">
+      <linux-def:object object_ref="oval:com.ubuntu.noble:obj:1"/>
+      <linux-def:state state_ref="oval:com.ubuntu.noble:ste:1"/>
+    </linux-def:dpkginfo_test>
+  </tests>
+  <objects>
+    <linux-def:dpkginfo_object id="oval:com.ubuntu.noble:obj:1">
+      <linux-def:name>openssl</linux-def:name>
+    </linux-def:dpkginfo_object>
+  </objects>
+  <states>
+    <linux-def:dpkginfo_state id="oval:com.ubuntu.noble:ste:1">
+      <linux-def:evr datatype="evr_string" operation="less than">3.0.13-0ubuntu3.5</linux-def:evr>
+    </linux-def:dpkginfo_state>
+  </states>
+</oval_definitions>
+"""
+
+    records = parse_ubuntu_oval(payload, "noble", source_url="https://example/oval.xml.bz2")
+
+    record = records[("noble", "CVE-2026-0001", "openssl")]
+    assert record.fixed_version == "3.0.13-0ubuntu3.5"
+    assert record.severity == "High"
+    assert record.advisory_url == "https://ubuntu.com/security/notices/USN-9999-1"

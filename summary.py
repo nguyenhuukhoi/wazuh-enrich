@@ -4,6 +4,14 @@ from typing import Any
 
 
 PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+VERIFICATION_ORDER = {
+    "confirmed_affected": 0,
+    "likely_affected": 1,
+    "needs_manual_check": 2,
+    "vendor_not_found": 3,
+    "installed_version_at_or_above_fixed": 4,
+    "not_verified": 5,
+}
 
 
 def _min_dt(values: list[str | None]) -> str | None:
@@ -18,6 +26,11 @@ def _max_dt(values: list[str | None]) -> str | None:
 
 def _top(counter: Counter[str], limit: int = 10) -> list[str]:
     return [item for item, _count in counter.most_common(limit) if item]
+
+
+def _highest_verification_status(docs: list[dict[str, Any]]) -> str:
+    statuses = {str(doc.get("verification_status", "not_verified")) for doc in docs}
+    return sorted(statuses, key=lambda val: VERIFICATION_ORDER.get(val, 99))[0] if statuses else "not_verified"
 
 
 def build_cve_summary(enriched_docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -60,6 +73,15 @@ def build_cve_summary(enriched_docs: list[dict[str, Any]]) -> list[dict[str, Any
             "last_detected_at": _max_dt([doc.get("last_detected_at") or doc.get("detected_at") for doc in docs]),
             "risk_score": max(float(doc.get("risk_score", 0.0)) for doc in docs),
             "reason": highest.get("reason", ""),
+            "verification_status": _highest_verification_status(docs),
+            "fix_available": any(bool(doc.get("fix_available")) for doc in docs),
+            "fix_status": "fixed_version_available"
+            if any(str(doc.get("fix_status")) == "fixed_version_available" for doc in docs)
+            else "unknown",
+            "vendor_source": highest.get("vendor_source", ""),
+            "vendor_fixed_version": highest.get("vendor_fixed_version", ""),
+            "vendor_advisory_url": highest.get("vendor_advisory_url", ""),
+            "vendor_severity": highest.get("vendor_severity", ""),
             "updated_at": now,
         }
         if public_poc:
@@ -163,6 +185,15 @@ def build_host_cve_impact_summary(enriched_docs: list[dict[str, Any]]) -> list[d
                 "last_detected_at": _max_dt([doc.get("last_detected_at") or doc.get("detected_at") for doc in docs]),
                 "reason": highest.get("reason", ""),
                 "recommended_action": highest.get("recommended_action", ""),
+                "verification_status": _highest_verification_status(docs),
+                "fix_available": any(bool(doc.get("fix_available")) for doc in docs),
+                "fix_status": "fixed_version_available"
+                if any(str(doc.get("fix_status")) == "fixed_version_available" for doc in docs)
+                else "unknown",
+                "vendor_source": highest.get("vendor_source", ""),
+                "vendor_fixed_version": highest.get("vendor_fixed_version", ""),
+                "vendor_advisory_url": highest.get("vendor_advisory_url", ""),
+                "vendor_severity": highest.get("vendor_severity", ""),
                 "updated_at": now,
             }
         )

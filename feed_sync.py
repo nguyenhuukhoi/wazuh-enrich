@@ -4,10 +4,12 @@ import hashlib
 import io
 import json
 import logging
+import bz2
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
 import requests
 
@@ -25,6 +27,18 @@ class PocRecord:
     count: int
     references: tuple[str, ...] = ()
     sources: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class UbuntuOvalRecord:
+    cve_id: str
+    release: str
+    package_name: str
+    fixed_version: str
+    severity: str = ""
+    title: str = ""
+    advisory_url: str = ""
+    source_url: str = ""
 
 
 def parse_kev_json(payload: bytes | str) -> set[str]:
@@ -68,6 +82,144 @@ def parse_poc_feed(payload: bytes | str, file_name: str = "poc.csv") -> dict[str
     if file_name.lower().endswith(".json"):
         return parse_poc_json(raw)
     return parse_poc_csv(raw)
+
+
+def parse_ubuntu_oval(payload: bytes | str, release: str, source_url: str = "") -> dict[tuple[str, str, str], UbuntuOvalRecord]:
+    raw = payload if isinstance(payload, bytes) else payload.encode("utf-8")
+    if raw.startswith(b"BZh"):
+        raw = bz2.decompress(raw)
+    root = ElementTree.fromstring(raw)
+
+    objects = _ubuntu_oval_objects(root)
+    states = _ubuntu_oval_states(root)
+    tests = _ubuntu_oval_tests(root, objects, states)
+    records: dict[tuple[str, str, str], UbuntuOvalRecord] = {}
+
+    for definition in root.iter():
+        if _local_name(definition.tag) != "definition":
+            continue
+        cves = _definition_cves(definition)
+        if not cves:
+            continue
+        title = _first_descendant_text(definition, "title")
+        severity = _first_descendant_text(definition, "severity")
+        advisory_url = _definition_advisory_url(definition)
+        test_refs = _definition_test_refs(definition)
+        packages = [tests[test_ref] for test_ref in test_refs if test_ref in tests]
+        if not packages:
+            continue
+        for cve_id in cves:
+            for package_name, fixed_version in packages:
+                if not package_name:
+                    continue
+                key = (release, cve_id, package_name)
+                current = records.get(key)
+                if current and current.fixed_version:
+                    continue
+                records[key] = UbuntuOvalRecord(
+                    cve_id=cve_id,
+                    release=release,
+                    package_name=package_name,
+                    fixed_version=fixed_version,
+                    severity=severity,
+                    title=title,
+                    advisory_url=advisory_url,
+                    source_url=source_url,
+                )
+    return records
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+
+def _first_descendant_text(element: ElementTree.Element, local_name: str) -> str:
+    for child in element.iter():
+        if _local_name(child.tag) == local_name and child.text:
+            return child.text.strip()
+    return ""
+
+
+def _ubuntu_oval_objects(root: ElementTree.Element) -> dict[str, str]:
+    objects: dict[str, str] = {}
+    for element in root.iter():
+        if not _local_name(element.tag).endswith("_object"):
+            continue
+        object_id = element.attrib.get("id")
+        package_name = _first_descendant_text(element, "name")
+        if object_id and package_name:
+            objects[object_id] = package_name
+    return objects
+
+
+def _ubuntu_oval_states(root: ElementTree.Element) -> dict[str, str]:
+    states: dict[str, str] = {}
+    for element in root.iter():
+        if not _local_name(element.tag).endswith("_state"):
+            continue
+        state_id = element.attrib.get("id")
+        fixed_version = _first_descendant_text(element, "evr")
+        if state_id and fixed_version:
+            states[state_id] = fixed_version
+    return states
+
+
+def _ubuntu_oval_tests(
+    root: ElementTree.Element,
+    objects: dict[str, str],
+    states: dict[str, str],
+) -> dict[str, tuple[str, str]]:
+    tests: dict[str, tuple[str, str]] = {}
+    for element in root.iter():
+        if not _local_name(element.tag).endswith("_test"):
+            continue
+        test_id = element.attrib.get("id")
+        object_ref = ""
+        state_ref = ""
+        for child in element:
+            child_name = _local_name(child.tag)
+            if child_name == "object":
+                object_ref = child.attrib.get("object_ref", "")
+            elif child_name == "state":
+                state_ref = child.attrib.get("state_ref", "")
+        if test_id and object_ref in objects:
+            tests[test_id] = (objects[object_ref], states.get(state_ref, ""))
+    return tests
+
+
+def _definition_cves(definition: ElementTree.Element) -> set[str]:
+    cves: set[str] = set()
+    for element in definition.iter():
+        for attr in ("ref_id", "name"):
+            value = str(element.attrib.get(attr, "")).upper()
+            if value.startswith("CVE-"):
+                cves.add(value)
+        if _local_name(element.tag) == "cve" and element.text:
+            value = element.text.strip().upper()
+            if value.startswith("CVE-"):
+                cves.add(value)
+    return cves
+
+
+def _definition_advisory_url(definition: ElementTree.Element) -> str:
+    for element in definition.iter():
+        ref_url = element.attrib.get("ref_url", "")
+        ref_id = element.attrib.get("ref_id", "")
+        if "ubuntu.com/security/notices" in ref_url or ref_id.startswith("USN-"):
+            return ref_url
+    for element in definition.iter():
+        ref_url = element.attrib.get("ref_url", "")
+        if ref_url:
+            return ref_url
+    return ""
+
+
+def _definition_test_refs(definition: ElementTree.Element) -> set[str]:
+    return {
+        str(element.attrib["test_ref"])
+        for element in definition.iter()
+        if "test_ref" in element.attrib
+    }
 
 
 def parse_poc_json(text: str) -> dict[str, PocRecord]:
@@ -145,6 +297,7 @@ class FeedSync:
         timeout: int = 30,
         kev_file: Path | None = None,
         poc_file: Path | None = None,
+        ubuntu_oval: dict[str, Any] | None = None,
     ):
         self.cache_dir = cache_dir
         self.kev_url = kev_url
@@ -152,10 +305,13 @@ class FeedSync:
         self.timeout = timeout
         self.kev_file = kev_file
         self.poc_file = poc_file
+        self.ubuntu_oval = ubuntu_oval or {}
         self.kev_cache = cache_dir / "cisa_kev.json"
         self.epss_cache = cache_dir / "epss_scores-current.csv.gz"
         self.poc_cache = cache_dir / "cve_poc.csv"
+        self.ubuntu_cache_dir = cache_dir / "ubuntu-oval"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.ubuntu_cache_dir.mkdir(parents=True, exist_ok=True)
 
     def sync_kev(self, force: bool = False) -> set[str]:
         if self.kev_file:
@@ -208,7 +364,39 @@ class FeedSync:
         self._atomic_write(self.poc_cache, payload)
         return records
 
+    def sync_ubuntu_oval(self, force: bool = False) -> dict[tuple[str, str, str], UbuntuOvalRecord]:
+        if not self.ubuntu_oval.get("enabled"):
+            return {}
+        records: dict[tuple[str, str, str], UbuntuOvalRecord] = {}
+        for release in self.ubuntu_oval.get("releases", []):
+            release_name = str(release).strip()
+            if not release_name:
+                continue
+            url = self._ubuntu_oval_url(release_name)
+            cache = self.ubuntu_cache_dir / f"com.ubuntu.{release_name}.usn.oval.xml.bz2"
+            if force or not self._fresh(cache, timedelta(hours=int(self.ubuntu_oval.get("max_age_hours", 24)))):
+                LOG.info("sync_ubuntu_oval release=%s url=%s", release_name, url)
+                payload = self._read_or_download(url)
+                parse_ubuntu_oval(payload, release_name, source_url=url)
+                self._atomic_write(cache, payload)
+            records.update(parse_ubuntu_oval(cache.read_bytes(), release_name, source_url=url))
+        return records
+
+    def load_ubuntu_oval(self) -> dict[tuple[str, str, str], UbuntuOvalRecord]:
+        if not self.ubuntu_oval.get("enabled"):
+            return {}
+        records: dict[tuple[str, str, str], UbuntuOvalRecord] = {}
+        for release in self.ubuntu_oval.get("releases", []):
+            release_name = str(release).strip()
+            if not release_name:
+                continue
+            cache = self.ubuntu_cache_dir / f"com.ubuntu.{release_name}.usn.oval.xml.bz2"
+            if cache.exists():
+                records.update(parse_ubuntu_oval(cache.read_bytes(), release_name, source_url=self._ubuntu_oval_url(release_name)))
+        return records
+
     def sync_all(self, force: bool = False) -> tuple[set[str], dict[str, EpssRecord], dict[str, PocRecord]]:
+        self.sync_ubuntu_oval(force=force)
         return self.sync_kev(force=force), self.sync_epss(force=force), self.sync_poc()
 
     def fingerprints(self) -> dict[str, str | None]:
@@ -216,6 +404,10 @@ class FeedSync:
             "kev": self._file_sha256(self.kev_cache),
             "epss": self._file_sha256(self.epss_cache),
             "poc": self._file_sha256(self.poc_cache),
+            **{
+                f"ubuntu_oval_{path.stem}": self._file_sha256(path)
+                for path in sorted(self.ubuntu_cache_dir.glob("*.xml.bz2"))
+            },
         }
 
     def _download(self, url: str) -> bytes:
@@ -226,6 +418,21 @@ class FeedSync:
         response = requests.get(url, headers=headers, timeout=self.timeout)
         response.raise_for_status()
         return response.content
+
+    def _read_or_download(self, url_or_path: str) -> bytes:
+        if url_or_path.startswith(("http://", "https://")):
+            return self._download(url_or_path)
+        return Path(url_or_path).read_bytes()
+
+    def _ubuntu_oval_url(self, release: str) -> str:
+        urls = self.ubuntu_oval.get("urls", {}) or {}
+        if release in urls and urls[release]:
+            return str(urls[release])
+        base_url = str(
+            self.ubuntu_oval.get("base_url")
+            or "https://security-metadata.canonical.com/oval"
+        ).rstrip("/")
+        return f"{base_url}/com.ubuntu.{release}.usn.oval.xml.bz2"
 
     @staticmethod
     def _file_sha256(path: Path) -> str | None:

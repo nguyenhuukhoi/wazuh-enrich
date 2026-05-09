@@ -70,6 +70,8 @@ Controls:
 
 - `Public PoC CVE impacting system`: dropdown on `impact_cve_id.keyword`.
 - `Host impacted by public PoC`: dropdown on `impact_host.keyword`.
+- `Ubuntu verification status`: dropdown on `verification_status.keyword`.
+- `Fix status`: dropdown on `fix_status.keyword`.
 
 These fields are only written when `public_poc:true`, so the dropdowns only contain public-PoC CVEs and hosts currently affected by them.
 
@@ -93,6 +95,11 @@ Columns:
 - `cvss_score`
 - `affected_hosts_count`
 - `affected_packages`
+- `verification_status`
+- `fix_available`
+- `vendor_fixed_version`
+- `vendor_advisory_url`
+- `vendor_severity`
 - `poc_references`
 - `reason`
 
@@ -118,6 +125,11 @@ Columns:
 - `os_version`
 - `affected_packages`
 - `affected_package_versions`
+- `verification_status`
+- `fix_available`
+- `vendor_fixed_version`
+- `vendor_advisory_url`
+- `vendor_severity`
 - `finding_count`
 - `epss_score`
 - `cvss_score`

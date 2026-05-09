@@ -54,6 +54,7 @@ class Settings:
     alert_thresholds: dict[str, Any]
     schedule: dict[str, int]
     poc_build: dict[str, Any]
+    ubuntu_oval: dict[str, Any]
 
     @property
     def ssl_verify_value(self) -> bool | str:
@@ -128,6 +129,7 @@ def load_config(path: str = "config.yaml") -> Settings:
         alert_thresholds=cfg["ALERT_THRESHOLDS"],
         schedule={key: int(val) for key, val in cfg.get("SCHEDULE", {}).items()},
         poc_build=_normalize_poc_build(cfg.get("POC_BUILD", {})),
+        ubuntu_oval=_normalize_ubuntu_oval(cfg.get("UBUNTU_OVAL", {})),
     )
 
 
@@ -140,6 +142,16 @@ def _normalize_poc_build(raw: dict[str, Any]) -> dict[str, Any]:
     for key in ["exploitdb_csv", "nuclei_templates", "poc_in_github", "trickest_cve"]:
         if cfg.get(key) in ("", None):
             cfg[key] = None
+    return cfg
+
+
+def _normalize_ubuntu_oval(raw: dict[str, Any]) -> dict[str, Any]:
+    cfg = dict(raw or {})
+    cfg["enabled"] = _as_bool(cfg.get("enabled", False))
+    cfg["releases"] = _as_list(cfg.get("releases", ["noble"]))
+    cfg["max_age_hours"] = int(cfg.get("max_age_hours", 24) or 24)
+    cfg["base_url"] = str(cfg.get("base_url") or "https://security-metadata.canonical.com/oval")
+    cfg["urls"] = cfg.get("urls", {}) or {}
     return cfg
 
 

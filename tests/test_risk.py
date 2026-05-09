@@ -1,5 +1,6 @@
 from feed_sync import EpssRecord, PocRecord
-from risk import calculate_risk_score, classify_priority, first_valid_ip, normalize_finding
+from feed_sync import UbuntuOvalRecord
+from risk import calculate_risk_score, classify_priority, deb_version_compare, first_valid_ip, normalize_finding, verify_ubuntu_impact
 
 
 def test_priority_p0_for_kev():
@@ -129,3 +130,58 @@ def test_first_valid_ip_ignores_ipv6_link_local_when_it_is_the_only_ip():
     source = {"network": {"ip": "fe80::f816:3eff:feac:c25d"}}
 
     assert first_valid_ip(source, ["network.ip"]) == ""
+
+
+def test_deb_version_compare_handles_ubuntu_revisions():
+    assert deb_version_compare("3.0.13-0ubuntu3.4", "3.0.13-0ubuntu3.5") < 0
+    assert deb_version_compare("3.0.13-0ubuntu3.5", "3.0.13-0ubuntu3.5") == 0
+    assert deb_version_compare("1:2.0-1", "2.0-1") > 0
+
+
+def test_verify_ubuntu_impact_confirms_affected_when_installed_version_is_lower():
+    records = {
+        ("noble", "CVE-2026-0001", "openssl"): UbuntuOvalRecord(
+            cve_id="CVE-2026-0001",
+            release="noble",
+            package_name="openssl",
+            fixed_version="3.0.13-0ubuntu3.5",
+            severity="High",
+            advisory_url="https://ubuntu.com/security/notices/USN-9999-1",
+        )
+    }
+
+    result = verify_ubuntu_impact(
+        "CVE-2026-0001",
+        "Ubuntu",
+        "24.04",
+        "openssl",
+        "3.0.13-0ubuntu3.4",
+        records,
+    )
+
+    assert result["verification_status"] == "confirmed_affected"
+    assert result["fix_available"] is True
+    assert result["vendor_fixed_version"] == "3.0.13-0ubuntu3.5"
+
+
+def test_normalize_finding_adds_ubuntu_verification_fields():
+    source = {
+        "agent": {"id": "001", "name": "ubuntu-1"},
+        "host": {"os": {"name": "Ubuntu", "version": "24.04"}},
+        "vulnerability": {"id": "CVE-2026-0001", "score": {"base": 7.8}},
+        "package": {"name": "openssl", "version": "3.0.13-0ubuntu3.4"},
+    }
+    records = {
+        ("noble", "CVE-2026-0001", "openssl"): UbuntuOvalRecord(
+            cve_id="CVE-2026-0001",
+            release="noble",
+            package_name="openssl",
+            fixed_version="3.0.13-0ubuntu3.5",
+        )
+    }
+
+    doc = normalize_finding(source, kev_cves=set(), epss_records={}, ubuntu_records=records)
+
+    assert doc is not None
+    assert doc["verification_status"] == "confirmed_affected"
+    assert doc["ubuntu_release"] == "noble"
