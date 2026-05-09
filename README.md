@@ -127,6 +127,21 @@ PAGE_SIZE: 2000
 BULK_SIZE: 1000
 ```
 
+If the CISA KEV URL is blocked from your server, use a local file or an internal mirror:
+
+```bash
+export CISA_KEV_FILE="/opt/wazuh-enrich/feeds/known_exploited_vulnerabilities.json"
+```
+
+When `CISA_KEV_FILE` is set, the service reads KEV from that local JSON file and skips downloading from CISA. You can update that file with a browser download, an internal mirror job, rsync/scp from another machine, or a corporate artifact repository. If you use an internal HTTP mirror instead, set `CISA_KEV_URL` to the mirror URL.
+
+If your environment requires a proxy, `requests` also honors standard environment variables:
+
+```bash
+export HTTPS_PROXY="http://proxy.example.com:8080"
+export HTTP_PROXY="http://proxy.example.com:8080"
+```
+
 For a lab without a proper CA certificate, you can temporarily use:
 
 ```yaml
@@ -447,6 +462,12 @@ SSL error:
 
 - Check `WAZUH_CA_CERT`.
 - Labs can use `VERIFY_SSL: false`; production should not.
+
+CISA KEV URL is blocked:
+
+- Prefer `CISA_KEV_FILE` and update the JSON file through your browser, a jump host, or an internal mirror.
+- Or set `CISA_KEV_URL` to an internal mirror of the official JSON.
+- If the network requires a proxy, set `HTTPS_PROXY` and `HTTP_PROXY`.
 
 Telegram is not sending:
 

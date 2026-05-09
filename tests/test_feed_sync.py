@@ -1,7 +1,7 @@
 import gzip
 import json
 
-from feed_sync import parse_epss_csv_gz, parse_kev_json
+from feed_sync import FeedSync, parse_epss_csv_gz, parse_kev_json
 
 
 def test_parse_kev_json():
@@ -24,3 +24,20 @@ def test_parse_epss_csv_gz():
 
     assert records["CVE-2025-0001"].score == 0.94
     assert records["CVE-2025-0001"].percentile == 0.99
+
+
+def test_sync_kev_from_local_file(tmp_path):
+    kev_file = tmp_path / "known_exploited_vulnerabilities.json"
+    kev_file.write_text(
+        json.dumps({"vulnerabilities": [{"cveID": "CVE-2026-0001"}]}),
+        encoding="utf-8",
+    )
+    sync = FeedSync(
+        cache_dir=tmp_path / "cache",
+        kev_url="https://blocked.example/kev.json",
+        epss_url="https://example/epss.csv.gz",
+        kev_file=kev_file,
+    )
+
+    assert sync.sync_kev() == {"CVE-2026-0001"}
+    assert (tmp_path / "cache" / "cisa_kev.json").exists()

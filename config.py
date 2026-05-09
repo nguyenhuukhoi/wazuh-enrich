@@ -44,6 +44,7 @@ class Settings:
     request_timeout_seconds: int
     scroll_ttl: str
     cisa_kev_url: str
+    cisa_kev_file: Path | None
     epss_url: str
     telegram_bot_token: str
     telegram_chat_id: str
@@ -104,6 +105,7 @@ def load_config(path: str = "config.yaml") -> Settings:
             "CISA_KEV_URL",
             "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
         ),
+        cisa_kev_file=Path(cfg["CISA_KEV_FILE"]) if cfg.get("CISA_KEV_FILE") else None,
         epss_url=cfg.get("EPSS_URL", "https://epss.empiricalsecurity.com/epss_scores-current.csv.gz"),
         telegram_bot_token=cfg.get("TELEGRAM_BOT_TOKEN", ""),
         telegram_chat_id=cfg.get("TELEGRAM_CHAT_ID", ""),

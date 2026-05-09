@@ -20,6 +20,9 @@ REQUEST_TIMEOUT_SECONDS: 30
 SCROLL_TTL: 5m
 
 CISA_KEV_URL: https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
+# Optional offline/mirror mode. If set, the service reads KEV from this local
+# JSON file instead of downloading from CISA.
+CISA_KEV_FILE: ${CISA_KEV_FILE}
 EPSS_URL: https://epss.empiricalsecurity.com/epss_scores-current.csv.gz
 
 TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}

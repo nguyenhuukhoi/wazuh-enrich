@@ -48,6 +48,7 @@ def load_local_or_sync_feeds(settings: Settings, force: bool = False) -> tuple[s
         kev_url=settings.cisa_kev_url,
         epss_url=settings.epss_url,
         timeout=settings.request_timeout_seconds,
+        kev_file=settings.cisa_kev_file,
     )
     return feed_sync.sync_all(force=force)
 
@@ -216,10 +217,22 @@ def daemon(settings: Settings, dry_run: bool = False) -> None:
         now = time.monotonic()
         try:
             if now - last_run["kev_sync_seconds"] >= schedule["kev_sync_seconds"]:
-                FeedSync(settings.cache_dir, settings.cisa_kev_url, settings.epss_url, settings.request_timeout_seconds).sync_kev()
+                FeedSync(
+                    settings.cache_dir,
+                    settings.cisa_kev_url,
+                    settings.epss_url,
+                    settings.request_timeout_seconds,
+                    kev_file=settings.cisa_kev_file,
+                ).sync_kev()
                 last_run["kev_sync_seconds"] = now
             if now - last_run["epss_sync_seconds"] >= schedule["epss_sync_seconds"]:
-                FeedSync(settings.cache_dir, settings.cisa_kev_url, settings.epss_url, settings.request_timeout_seconds).sync_epss()
+                FeedSync(
+                    settings.cache_dir,
+                    settings.cisa_kev_url,
+                    settings.epss_url,
+                    settings.request_timeout_seconds,
+                    kev_file=settings.cisa_kev_file,
+                ).sync_epss()
                 last_run["epss_sync_seconds"] = now
             if now - last_run["enrichment_seconds"] >= schedule["enrichment_seconds"]:
                 enrich(settings, client, state, full=False, dry_run=dry_run)

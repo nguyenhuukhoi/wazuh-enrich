@@ -56,16 +56,30 @@ def parse_epss_csv(text: str) -> dict[str, EpssRecord]:
 
 
 class FeedSync:
-    def __init__(self, cache_dir: Path, kev_url: str, epss_url: str, timeout: int = 30):
+    def __init__(
+        self,
+        cache_dir: Path,
+        kev_url: str,
+        epss_url: str,
+        timeout: int = 30,
+        kev_file: Path | None = None,
+    ):
         self.cache_dir = cache_dir
         self.kev_url = kev_url
         self.epss_url = epss_url
         self.timeout = timeout
+        self.kev_file = kev_file
         self.kev_cache = cache_dir / "cisa_kev.json"
         self.epss_cache = cache_dir / "epss_scores-current.csv.gz"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def sync_kev(self, force: bool = False) -> set[str]:
+        if self.kev_file:
+            LOG.info("load_kev_file path=%s", self.kev_file)
+            payload = self.kev_file.read_bytes()
+            cves = parse_kev_json(payload)
+            self._atomic_write(self.kev_cache, payload)
+            return cves
         if not force and self._fresh(self.kev_cache, timedelta(hours=1)):
             return self.load_kev()
         LOG.info("sync_kev url=%s", self.kev_url)
@@ -97,7 +111,11 @@ class FeedSync:
         return self.sync_kev(force=force), self.sync_epss(force=force)
 
     def _download(self, url: str) -> bytes:
-        response = requests.get(url, timeout=self.timeout)
+        headers = {
+            "Accept": "application/json,text/csv,application/gzip,*/*",
+            "User-Agent": "wazuh-enrich/1.0 (+https://github.com/nguyenhuukhoi/wazuh-enrich)",
+        }
+        response = requests.get(url, headers=headers, timeout=self.timeout)
         response.raise_for_status()
         return response.content
 

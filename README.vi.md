@@ -127,6 +127,21 @@ PAGE_SIZE: 2000
 BULK_SIZE: 1000
 ```
 
+Nếu server của bạn bị chặn khi tải CISA KEV URL, dùng file local hoặc mirror nội bộ:
+
+```bash
+export CISA_KEV_FILE="/opt/wazuh-enrich/feeds/known_exploited_vulnerabilities.json"
+```
+
+Khi `CISA_KEV_FILE` được set, service sẽ đọc KEV từ file JSON local đó và không download trực tiếp từ CISA. Bạn có thể update file này bằng browser, job mirror nội bộ, rsync/scp từ máy khác, hoặc artifact repository của công ty. Nếu có internal HTTP mirror, set `CISA_KEV_URL` sang URL mirror đó.
+
+Nếu môi trường cần proxy, `requests` cũng đọc các biến môi trường chuẩn:
+
+```bash
+export HTTPS_PROXY="http://proxy.example.com:8080"
+export HTTP_PROXY="http://proxy.example.com:8080"
+```
+
 Nếu lab không có CA certificate chuẩn, có thể tạm dùng:
 
 ```yaml
@@ -437,6 +452,12 @@ SSL error:
 
 - Kiểm tra `WAZUH_CA_CERT`.
 - Lab có thể dùng `VERIFY_SSL: false`, production không nên.
+
+CISA KEV URL bị chặn:
+
+- Ưu tiên dùng `CISA_KEV_FILE` và update file JSON qua browser, jump host, hoặc mirror nội bộ.
+- Hoặc set `CISA_KEV_URL` sang internal mirror của official JSON.
+- Nếu network cần proxy, set `HTTPS_PROXY` và `HTTP_PROXY`.
 
 Không gửi Telegram:
 
