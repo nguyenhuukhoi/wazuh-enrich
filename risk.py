@@ -40,7 +40,7 @@ def first_valid_ip(data: dict[str, Any], paths: list[str], default: str = "") ->
                 ip = ipaddress.ip_address(text)
             except ValueError:
                 continue
-            if ip.is_unspecified or ip.is_loopback:
+            if ip.is_unspecified or ip.is_loopback or ip.is_link_local:
                 continue
             candidates.append((_ip_rank(ip), text))
     if not candidates:
@@ -53,9 +53,7 @@ def _ip_rank(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> int:
         return 0
     if isinstance(ip, ipaddress.IPv6Address) and not ip.is_link_local:
         return 1
-    if isinstance(ip, ipaddress.IPv4Address):
-        return 2
-    return 3
+    return 2
 
 
 def as_float(value: Any, default: float = 0.0) -> float:

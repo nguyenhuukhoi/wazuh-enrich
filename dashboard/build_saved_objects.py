@@ -7,6 +7,7 @@ from typing import Any
 ENRICHED = "wazuh-vuln-enriched-pattern"
 CVE_SUMMARY = "wazuh-vuln-cve-summary-pattern"
 HOST_SUMMARY = "wazuh-vuln-host-summary-pattern"
+HOST_CVE_IMPACT = "wazuh-vuln-host-cve-impact-pattern"
 PUBLIC_POC_IMPACT_QUERY = "public_poc:true and affected_hosts_count > 0"
 
 
@@ -217,8 +218,8 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
         },
         "references": [
             {"name": "kibanaSavedObjectMeta.searchSourceJSON.index", "type": "index-pattern", "id": index_ref},
-            {"name": "control_0_index", "type": "index-pattern", "id": ENRICHED},
-            {"name": "control_1_index", "type": "index-pattern", "id": ENRICHED},
+            {"name": "control_0_index", "type": "index-pattern", "id": HOST_CVE_IMPACT},
+            {"name": "control_1_index", "type": "index-pattern", "id": HOST_CVE_IMPACT},
         ],
     }
 
@@ -317,18 +318,20 @@ def build_objects() -> list[dict[str, Any]]:
         "agent_ip",
         "os_name",
         "os_version",
-        "package_name",
-        "package_version",
+        "affected_packages",
+        "affected_package_versions",
+        "finding_count",
         "epss_score",
         "cvss_score",
-        "detected_at",
+        "last_detected_at",
         "poc_references",
         "recommended_action",
     ]
     return [
         index_pattern(ENRICHED, "wazuh-vuln-enriched-*", "enriched_at"),
         index_pattern(CVE_SUMMARY, "wazuh-vuln-cve-summary-*", "updated_at"),
-        controls_vis("vis-impact-controls", "Impact Filters", ENRICHED),
+        index_pattern(HOST_CVE_IMPACT, "wazuh-vuln-host-cve-impact-*", "updated_at"),
+        controls_vis("vis-impact-controls", "Impact Filters", HOST_CVE_IMPACT),
         saved_search(
             "search-public-poc",
             "Public PoC CVEs Impacting This System",
@@ -340,10 +343,10 @@ def build_objects() -> list[dict[str, Any]]:
         saved_search(
             "search-public-poc-hosts",
             "Hosts Affected by Public PoC CVEs",
-            ENRICHED,
+            HOST_CVE_IMPACT,
             poc_host_columns,
             "risk_score",
-            filters=[phrase_filter("public_poc", True, ENRICHED)],
+            filters=[phrase_filter("public_poc", True, HOST_CVE_IMPACT)],
         ),
         dashboard_object(),
     ]

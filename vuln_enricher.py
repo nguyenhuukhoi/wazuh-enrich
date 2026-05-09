@@ -13,7 +13,7 @@ from config import Settings, load_config
 from feed_sync import FeedSync
 from risk import normalize_finding
 from state import StateStore
-from summary import build_cve_summary, build_host_summary, overview_metrics
+from summary import build_cve_summary, build_host_cve_impact_summary, build_host_summary, overview_metrics
 from tools.build_poc_feed import build_poc_feed
 from wazuh_client import WazuhIndexerClient
 
@@ -134,6 +134,7 @@ def enrich(
     enriched_index = client.index_name(settings.enriched_index_prefix)
     cve_summary_index = client.index_name(settings.cve_summary_index_prefix)
     host_summary_index = client.index_name(settings.host_summary_index_prefix)
+    host_cve_impact_index = client.index_name(settings.host_cve_impact_index_prefix)
 
     if not dry_run:
         client.ensure_templates()
@@ -149,11 +150,13 @@ def enrich(
 
     cve_summaries = build_cve_summary(summary_source)
     host_summaries = build_host_summary(summary_source)
+    host_cve_impacts = build_host_cve_impact_summary(summary_source)
     metrics = overview_metrics(summary_source, cve_summaries, host_summaries)
 
     if not dry_run:
         client.bulk_index(cve_summary_index, cve_summaries, ["cve_id"])
         client.bulk_index(host_summary_index, host_summaries, ["agent_id"])
+        client.bulk_index(host_cve_impact_index, host_cve_impacts, ["cve_id", "agent_id"])
 
     if send_alerts:
         alerts = AlertManager(
@@ -177,6 +180,7 @@ def enrich(
         "enriched_index": enriched_index,
         "cve_summary_index": cve_summary_index,
         "host_summary_index": host_summary_index,
+        "host_cve_impact_index": host_cve_impact_index,
         "dry_run": dry_run,
     }
     LOG.info("enrichment_done %s", json.dumps(result, sort_keys=True))

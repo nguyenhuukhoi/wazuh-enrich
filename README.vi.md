@@ -38,6 +38,7 @@ Daemon tự làm:
 wazuh-vuln-enriched-YYYY.MM.DD
 wazuh-vuln-cve-summary-YYYY.MM.DD
 wazuh-vuln-host-summary-YYYY.MM.DD
+wazuh-vuln-host-cve-impact-YYYY.MM.DD
 ```
 
 Dashboard nên đọc 3 index này, không đọc trực tiếp `wazuh-states-vulnerabilities-*`.
@@ -370,6 +371,7 @@ Data views cần có:
 ```text
 wazuh-vuln-enriched-*       time field: enriched_at
 wazuh-vuln-cve-summary-*    time field: updated_at
+wazuh-vuln-host-cve-impact-* time field: updated_at
 ```
 
 Dashboard import chủ động chỉ giữ các panel cần thiết:
@@ -386,7 +388,7 @@ python3 dashboard/manage_saved_objects.py reimport --no-verify-ssl
 
 Import dashboard không nằm trong flow enrich/daemon. Dashboard chỉ đọc index đã được service cập nhật.
 
-Panel filter lấy từ `wazuh-vuln-enriched-*` và có 2 dropdown:
+Panel filter và bảng host impact lấy từ `wazuh-vuln-host-cve-impact-*`. Index này có đúng 1 document cho mỗi `cve_id + agent_id`, nên bảng host không bị duplicate theo package/version. Có 2 dropdown:
 
 ```text
 impact_cve_id

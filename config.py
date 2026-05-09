@@ -38,6 +38,7 @@ class Settings:
     enriched_index_prefix: str
     cve_summary_index_prefix: str
     host_summary_index_prefix: str
+    host_cve_impact_index_prefix: str
     cache_dir: Path
     state_file: Path
     page_size: int
@@ -108,6 +109,7 @@ def load_config(path: str = "config.yaml") -> Settings:
         enriched_index_prefix=cfg["ENRICHED_INDEX_PREFIX"],
         cve_summary_index_prefix=cfg.get("CVE_SUMMARY_INDEX_PREFIX", "wazuh-vuln-cve-summary"),
         host_summary_index_prefix=cfg.get("HOST_SUMMARY_INDEX_PREFIX", "wazuh-vuln-host-summary"),
+        host_cve_impact_index_prefix=cfg.get("HOST_CVE_IMPACT_INDEX_PREFIX", "wazuh-vuln-host-cve-impact"),
         cache_dir=cache_dir,
         state_file=state_file,
         page_size=int(cfg["PAGE_SIZE"]),

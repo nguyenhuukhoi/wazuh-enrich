@@ -6,6 +6,7 @@ It reads only:
 
 - `wazuh-vuln-cve-summary-*`
 - `wazuh-vuln-enriched-*`
+- `wazuh-vuln-host-cve-impact-*`
 
 Do not build these panels directly on `wazuh-states-vulnerabilities-*` for daily operations.
 
@@ -17,10 +18,11 @@ Import:
 dashboard/wazuh-vuln-enrichment.ndjson
 ```
 
-The import creates 6 saved objects:
+The import creates 7 saved objects:
 
 - Data view: `wazuh-vuln-cve-summary-*`
 - Data view: `wazuh-vuln-enriched-*` with time field `enriched_at`
+- Data view: `wazuh-vuln-host-cve-impact-*`
 - Visualization: `Impact Filters`
 - Search: `Public PoC CVEs Impacting This System`
 - Search: `Hosts Affected by Public PoC CVEs`
@@ -62,7 +64,7 @@ If you imported into a non-default tenant, add:
 
 ### Impact Filters
 
-Data view: `wazuh-vuln-enriched-*`
+Data view: `wazuh-vuln-host-cve-impact-*`
 
 Controls:
 
@@ -96,7 +98,7 @@ Columns:
 
 ### Hosts Affected By Public PoC CVEs
 
-Data view: `wazuh-vuln-enriched-*`
+Data view: `wazuh-vuln-host-cve-impact-*`
 
 Filter:
 
@@ -114,11 +116,12 @@ Columns:
 - `agent_ip`
 - `os_name`
 - `os_version`
-- `package_name`
-- `package_version`
+- `affected_packages`
+- `affected_package_versions`
+- `finding_count`
 - `epss_score`
 - `cvss_score`
-- `detected_at`
+- `last_detected_at`
 - `poc_references`
 - `recommended_action`
 
@@ -144,6 +147,10 @@ wazuh-states-inventory-networks-*
 ```
 
 If `agent_ip` is still empty or `0.0.0.0` after `enrich-all`, check that those inventory indices contain a real `agent.host.ip` for the agent.
+
+## Deduplication
+
+The host impact table reads `wazuh-vuln-host-cve-impact-*`, which has one document per `cve_id + agent_id`. Package names and versions are aggregated into list fields, so one CVE affecting the same host through multiple packages does not create duplicate host rows.
 
 ## Time Field
 

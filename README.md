@@ -38,6 +38,7 @@ Daemon mode automatically:
 wazuh-vuln-enriched-YYYY.MM.DD
 wazuh-vuln-cve-summary-YYYY.MM.DD
 wazuh-vuln-host-summary-YYYY.MM.DD
+wazuh-vuln-host-cve-impact-YYYY.MM.DD
 ```
 
 Dashboards should read these indices, not `wazuh-states-vulnerabilities-*` directly.
@@ -338,6 +339,7 @@ Create these data views:
 ```text
 wazuh-vuln-enriched-*       time field: enriched_at
 wazuh-vuln-cve-summary-*    time field: updated_at
+wazuh-vuln-host-cve-impact-* time field: updated_at
 ```
 
 The imported dashboard intentionally contains only the operational panels:
@@ -352,7 +354,7 @@ Dashboard import is optional and separate from enrichment:
 python3 dashboard/manage_saved_objects.py reimport --no-verify-ssl
 ```
 
-The filter panel uses `wazuh-vuln-enriched-*` and has two dropdowns:
+The filter and host impact panels use `wazuh-vuln-host-cve-impact-*`. This index has one document per `cve_id + agent_id`, so the host table is not duplicated by package/version. It has two dropdowns:
 
 ```text
 impact_cve_id

@@ -123,3 +123,9 @@ def test_first_valid_ip_prefers_ipv4_over_ipv6_link_local():
     }
 
     assert first_valid_ip(source, ["network.ip"]) == "2.11.3.143"
+
+
+def test_first_valid_ip_ignores_ipv6_link_local_when_it_is_the_only_ip():
+    source = {"network": {"ip": "fe80::f816:3eff:feac:c25d"}}
+
+    assert first_valid_ip(source, ["network.ip"]) == ""

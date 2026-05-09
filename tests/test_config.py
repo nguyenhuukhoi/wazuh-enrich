@@ -31,6 +31,7 @@ POC_BUILD:
 
     assert settings.poc_feed_file == Path(output_file)
     assert settings.poc_build["enabled"] is True
+    assert settings.host_cve_impact_index_prefix == "wazuh-vuln-host-cve-impact"
     assert settings.agent_inventory_index_patterns == [
         "wazuh-states-inventory-system-*",
         "wazuh-states-inventory-interfaces-*",

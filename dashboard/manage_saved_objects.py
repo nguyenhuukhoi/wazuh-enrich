@@ -15,6 +15,7 @@ RELATED_INDEX_PATTERNS = [
     "wazuh-vuln-enriched-*",
     "wazuh-vuln-cve-summary-*",
     "wazuh-vuln-host-summary-*",
+    "wazuh-vuln-host-cve-impact-*",
 ]
 
 
