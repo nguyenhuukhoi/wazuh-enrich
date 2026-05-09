@@ -1,0 +1,69 @@
+{
+  "overview_p0_cves": {
+    "index": "wazuh-vuln-cve-summary-*",
+    "body": {
+      "size": 0,
+      "query": { "term": { "priority": "P0" } }
+    }
+  },
+  "top_risk_cves": {
+    "index": "wazuh-vuln-cve-summary-*",
+    "body": {
+      "size": 10,
+      "sort": [
+        { "risk_score": "desc" },
+        { "affected_hosts_count": "desc" }
+      ],
+      "_source": [
+        "cve_id",
+        "priority",
+        "kev",
+        "epss_score",
+        "cvss_score",
+        "affected_hosts_count",
+        "affected_packages",
+        "reason"
+      ]
+    }
+  },
+  "top_hosts": {
+    "index": "wazuh-vuln-host-summary-*",
+    "body": {
+      "size": 10,
+      "sort": [
+        { "p0_count": "desc" },
+        { "kev_count": "desc" },
+        { "highest_epss": "desc" }
+      ],
+      "_source": [
+        "agent_id",
+        "agent_name",
+        "agent_ip",
+        "os_name",
+        "total_cves",
+        "p0_count",
+        "p1_count",
+        "kev_count",
+        "highest_epss",
+        "highest_cvss",
+        "top_packages"
+      ]
+    }
+  },
+  "cve_drill_down": {
+    "index": "wazuh-vuln-enriched-*",
+    "body": {
+      "size": 1000,
+      "query": { "term": { "cve_id": "CVE-2026-0000" } },
+      "sort": [{ "risk_score": "desc" }]
+    }
+  },
+  "host_drill_down": {
+    "index": "wazuh-vuln-enriched-*",
+    "body": {
+      "size": 1000,
+      "query": { "term": { "agent_id": "001" } },
+      "sort": [{ "risk_score": "desc" }]
+    }
+  }
+}

@@ -1,0 +1,38 @@
+# Wazuh vulnerability enrichment configuration.
+# Values like ${VAR_NAME} are expanded from environment variables at runtime.
+
+WAZUH_INDEXER_URL: ${WAZUH_INDEXER_URL}
+WAZUH_INDEXER_USERNAME: ${WAZUH_INDEXER_USERNAME}
+WAZUH_INDEXER_PASSWORD: ${WAZUH_INDEXER_PASSWORD}
+WAZUH_CA_CERT: ${WAZUH_CA_CERT}
+VERIFY_SSL: true
+
+WAZUH_VULN_INDEX_PATTERN: wazuh-states-vulnerabilities-*
+ENRICHED_INDEX_PREFIX: wazuh-vuln-enriched
+CVE_SUMMARY_INDEX_PREFIX: wazuh-vuln-cve-summary
+HOST_SUMMARY_INDEX_PREFIX: wazuh-vuln-host-summary
+
+CACHE_DIR: .cache
+STATE_FILE: .cache/state.json
+PAGE_SIZE: 2000
+BULK_SIZE: 1000
+REQUEST_TIMEOUT_SECONDS: 30
+SCROLL_TTL: 5m
+
+CISA_KEV_URL: https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
+EPSS_URL: https://epss.empiricalsecurity.com/epss_scores-current.csv.gz
+
+TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+
+ALERT_THRESHOLDS:
+  epss_high: 0.7
+  epss_medium: 0.3
+  cve_many_agents: 25
+  max_top_cves: 10
+
+SCHEDULE:
+  kev_sync_seconds: 3600
+  epss_sync_seconds: 86400
+  enrichment_seconds: 900
+  detect_new_agents_seconds: 300
