@@ -43,11 +43,45 @@ def test_alert_dedup_for_same_cve(tmp_path):
         }
     ]
 
-    manager.process_cycle([], cve_summary)
-    manager.process_cycle([], cve_summary)
+    enriched_docs = [
+        {"cve_id": "CVE-2025-0001", "agent_id": "001", "priority": "P0"},
+        {"cve_id": "CVE-2025-0001", "agent_id": "002", "priority": "P0"},
+        {"cve_id": "CVE-2025-0001", "agent_id": "002", "priority": "P0"},
+    ]
+
+    manager.process_cycle(enriched_docs, cve_summary)
+    manager.process_cycle(enriched_docs, cve_summary)
 
     assert len(manager.messages) == 1
     assert "CRITICAL - Exploited CVEs detected" in manager.messages[0]
+    assert "- Affected agents: 2" in manager.messages[0]
+    assert "- Affected agents: 72" not in manager.messages[0]
+
+
+def test_alert_summary_fallback_names_host_cve_pairs(tmp_path):
+    state = StateStore(tmp_path / "state.json")
+    manager = CapturingAlertManager(
+        bot_token="",
+        chat_id="",
+        thresholds={"epss_high": 0.7, "cve_many_agents": 25, "max_top_cves": 10},
+        state=state,
+    )
+    cve_summary = [
+        {
+            "cve_id": "CVE-2025-0001",
+            "priority": "P0",
+            "kev": True,
+            "epss_score": 0.94,
+            "cvss_score": 9.8,
+            "affected_hosts_count": 72,
+            "affected_packages": ["openssl"],
+            "risk_score": 106.4,
+        }
+    ]
+
+    manager.process_cycle([], cve_summary)
+
+    assert "- Affected host-CVE pairs: 72" in manager.messages[0]
 
 
 def test_dry_run_alert_renders_readable_block(tmp_path, capsys):

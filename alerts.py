@@ -41,7 +41,7 @@ class AlertManager:
     def process_cycle(self, enriched_docs: list[dict[str, Any]], cve_summaries: list[dict[str, Any]]) -> None:
         interesting = self._new_interesting_cves(cve_summaries)
         if interesting:
-            self.send_message(self._format_critical_alert(interesting))
+            self.send_message(self._format_critical_alert(interesting, enriched_docs))
 
         for doc in enriched_docs:
             if doc.get("priority") in {"P0", "P1"}:
@@ -108,15 +108,23 @@ class AlertManager:
 
         return sorted(selected, key=lambda doc: float(doc.get("risk_score", 0.0)), reverse=True)
 
-    def _format_critical_alert(self, cves: list[dict[str, Any]]) -> str:
+    def _format_critical_alert(self, cves: list[dict[str, Any]], enriched_docs: list[dict[str, Any]]) -> str:
         epss_high = float(self.thresholds.get("epss_high", 0.7))
         max_top = int(self.thresholds.get("max_top_cves", 10))
-        affected_agents = sum(int(cve.get("affected_hosts_count", 0)) for cve in cves)
+        cve_ids = {str(cve.get("cve_id", "")) for cve in cves}
+        affected_agent_ids = {
+            str(doc.get("agent_id"))
+            for doc in enriched_docs
+            if doc.get("agent_id") and str(doc.get("cve_id", "")) in cve_ids
+        }
+        affected_fallback = sum(int(cve.get("affected_hosts_count", 0)) for cve in cves)
+        affected_label = "Affected agents" if affected_agent_ids else "Affected host-CVE pairs"
+        affected_value = len(affected_agent_ids) if affected_agent_ids else affected_fallback
         lines = [
             "CRITICAL - Exploited CVEs detected",
             "",
             "Summary:",
-            f"- Affected agents: {affected_agents}",
+            f"- {affected_label}: {affected_value}",
             f"- P0 CVEs: {len([cve for cve in cves if cve.get('priority') == 'P0'])}",
             f"- KEV CVEs: {len([cve for cve in cves if cve.get('kev')])}",
             f"- EPSS >= {epss_high}: {len([cve for cve in cves if float(cve.get('epss_score', 0.0)) >= epss_high])}",

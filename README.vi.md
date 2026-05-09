@@ -348,7 +348,7 @@ Ví dụ alert:
 CRITICAL - Exploited CVEs detected
 
 Summary:
-- Affected agents: 113
+- Affected agents: 2
 - P0 CVEs: 4
 - KEV CVEs: 2
 - EPSS >= 0.7: 3
@@ -357,6 +357,8 @@ Top CVEs:
 1. CVE-2025-0001 | KEV=yes | EPSS=0.94 | CVSS=9.8 | hosts=72 | package=openssl
 2. CVE-2025-0002 | KEV=no | EPSS=0.88 | CVSS=8.8 | hosts=41 | package=nginx
 ```
+
+`Affected agents` là số Wazuh agent ID unique bị ảnh hưởng bởi các CVE trong alert. Nếu alert được build mà không có enriched finding context, service sẽ fallback sang `Affected host-CVE pairs`, nghĩa là tổng số affected-host count cộng theo từng CVE.
 
 ## Dashboard
 

@@ -348,7 +348,7 @@ Sample alert:
 CRITICAL - Exploited CVEs detected
 
 Summary:
-- Affected agents: 113
+- Affected agents: 2
 - P0 CVEs: 4
 - KEV CVEs: 2
 - EPSS >= 0.7: 3
@@ -357,6 +357,8 @@ Top CVEs:
 1. CVE-2025-0001 | KEV=yes | EPSS=0.94 | CVSS=9.8 | hosts=72 | package=openssl
 2. CVE-2025-0002 | KEV=no | EPSS=0.88 | CVSS=8.8 | hosts=41 | package=nginx
 ```
+
+`Affected agents` is the number of unique Wazuh agent IDs affected by the CVEs in the alert. If the alert is built without enriched finding context, the service falls back to `Affected host-CVE pairs`, which is the sum of affected-host counts per CVE.
 
 ## Dashboard
 
