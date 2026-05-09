@@ -19,6 +19,13 @@ class EpssRecord:
     percentile: float
 
 
+@dataclass(frozen=True)
+class PocRecord:
+    count: int
+    references: tuple[str, ...] = ()
+    sources: tuple[str, ...] = ()
+
+
 def parse_kev_json(payload: bytes | str) -> set[str]:
     raw = payload.decode("utf-8") if isinstance(payload, bytes) else payload
     data = json.loads(raw)
@@ -55,6 +62,79 @@ def parse_epss_csv(text: str) -> dict[str, EpssRecord]:
     return records
 
 
+def parse_poc_feed(payload: bytes | str, file_name: str = "poc.csv") -> dict[str, PocRecord]:
+    raw = payload.decode("utf-8") if isinstance(payload, bytes) else payload
+    if file_name.lower().endswith(".json"):
+        return parse_poc_json(raw)
+    return parse_poc_csv(raw)
+
+
+def parse_poc_json(text: str) -> dict[str, PocRecord]:
+    data = json.loads(text)
+    records: dict[str, list[dict[str, str]]] = {}
+
+    if isinstance(data, dict) and "pocs" in data:
+        data = data["pocs"]
+
+    if isinstance(data, list):
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            cve = str(item.get("cve") or item.get("cve_id") or item.get("cveID") or "").upper()
+            if cve.startswith("CVE-"):
+                records.setdefault(cve, []).append(
+                    {
+                        "reference": str(item.get("url") or item.get("reference") or ""),
+                        "source": str(item.get("source") or ""),
+                    }
+                )
+    elif isinstance(data, dict):
+        for cve, value in data.items():
+            cve_id = str(cve).upper()
+            if not cve_id.startswith("CVE-"):
+                continue
+            entries = value if isinstance(value, list) else [value]
+            for entry in entries:
+                if isinstance(entry, dict):
+                    records.setdefault(cve_id, []).append(
+                        {
+                            "reference": str(entry.get("url") or entry.get("reference") or ""),
+                            "source": str(entry.get("source") or ""),
+                        }
+                    )
+                else:
+                    records.setdefault(cve_id, []).append({"reference": str(entry), "source": ""})
+
+    return _build_poc_records(records)
+
+
+def parse_poc_csv(text: str) -> dict[str, PocRecord]:
+    lines = [line for line in text.splitlines() if line and not line.startswith("#")]
+    reader = csv.DictReader(lines)
+    records: dict[str, list[dict[str, str]]] = {}
+    for row in reader:
+        cve = str(row.get("cve") or row.get("cve_id") or row.get("CVE") or "").strip().upper()
+        if not cve.startswith("CVE-"):
+            continue
+        records.setdefault(cve, []).append(
+            {
+                "reference": str(row.get("url") or row.get("reference") or row.get("repo") or "").strip(),
+                "source": str(row.get("source") or "").strip(),
+            }
+        )
+    return _build_poc_records(records)
+
+
+def _build_poc_records(raw: dict[str, list[dict[str, str]]]) -> dict[str, PocRecord]:
+    records: dict[str, PocRecord] = {}
+    for cve, entries in raw.items():
+        references = tuple(sorted({entry["reference"] for entry in entries if entry.get("reference")}))
+        sources = tuple(sorted({entry["source"] for entry in entries if entry.get("source")}))
+        count = len(references) if references else len(entries)
+        records[cve] = PocRecord(count=count, references=references[:10], sources=sources[:10])
+    return records
+
+
 class FeedSync:
     def __init__(
         self,
@@ -63,14 +143,17 @@ class FeedSync:
         epss_url: str,
         timeout: int = 30,
         kev_file: Path | None = None,
+        poc_file: Path | None = None,
     ):
         self.cache_dir = cache_dir
         self.kev_url = kev_url
         self.epss_url = epss_url
         self.timeout = timeout
         self.kev_file = kev_file
+        self.poc_file = poc_file
         self.kev_cache = cache_dir / "cisa_kev.json"
         self.epss_cache = cache_dir / "epss_scores-current.csv.gz"
+        self.poc_cache = cache_dir / "cve_poc.csv"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def sync_kev(self, force: bool = False) -> set[str]:
@@ -107,8 +190,25 @@ class FeedSync:
             return {}
         return parse_epss_csv_gz(self.epss_cache.read_bytes())
 
-    def sync_all(self, force: bool = False) -> tuple[set[str], dict[str, EpssRecord]]:
-        return self.sync_kev(force=force), self.sync_epss(force=force)
+    def load_poc(self) -> dict[str, PocRecord]:
+        if self.poc_cache.exists():
+            return parse_poc_feed(self.poc_cache.read_bytes(), self.poc_cache.name)
+        if not self.poc_file:
+            return {}
+        return self.sync_poc()
+
+    def sync_poc(self) -> dict[str, PocRecord]:
+        if not self.poc_file:
+            LOG.info("sync_poc skipped=true reason=no_poc_file_configured")
+            return {}
+        LOG.info("load_poc_file path=%s", self.poc_file)
+        payload = self.poc_file.read_bytes()
+        records = parse_poc_feed(payload, self.poc_file.name)
+        self._atomic_write(self.poc_cache, payload)
+        return records
+
+    def sync_all(self, force: bool = False) -> tuple[set[str], dict[str, EpssRecord], dict[str, PocRecord]]:
+        return self.sync_kev(force=force), self.sync_epss(force=force), self.sync_poc()
 
     def _download(self, url: str) -> bytes:
         headers = {

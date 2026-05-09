@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from feed_sync import EpssRecord
+from feed_sync import EpssRecord, PocRecord
 
 LOG = logging.getLogger(__name__)
 CVE_YEAR_RE = re.compile(r"^CVE-(\d{4})-\d+$", re.IGNORECASE)
@@ -62,6 +62,7 @@ def normalize_finding(
     source: dict[str, Any],
     kev_cves: set[str],
     epss_records: dict[str, EpssRecord],
+    poc_records: dict[str, PocRecord] | None = None,
 ) -> dict[str, Any] | None:
     cve_id = str(first_path(source, ["vulnerability.id", "vulnerability.cve"], "")).upper()
     if not cve_id.startswith("CVE-"):
@@ -69,9 +70,12 @@ def normalize_finding(
         return None
 
     epss = epss_records.get(cve_id, EpssRecord(score=0.0, percentile=0.0))
+    poc = (poc_records or {}).get(cve_id)
     cvss_score = as_float(first_path(source, ["vulnerability.score.base", "vulnerability.cvss.cvss3.base_score"]))
     kev = cve_id in kev_cves
     priority, reason = classify_priority(kev, epss.score, cvss_score)
+    if poc:
+        reason = f"{reason}; public PoC available"
     detected_at = first_path(source, ["vulnerability.detected_at", "@timestamp"], None)
 
     doc = {
@@ -89,6 +93,10 @@ def normalize_finding(
         "kev": kev,
         "epss_score": epss.score,
         "epss_percentile": epss.percentile,
+        "public_poc": poc is not None,
+        "poc_count": poc.count if poc else 0,
+        "poc_references": list(poc.references) if poc else [],
+        "poc_sources": list(poc.sources) if poc else [],
         "cvss_score": cvss_score,
         "priority": priority,
         "risk_score": calculate_risk_score(kev, epss.score, cvss_score),

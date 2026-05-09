@@ -1,4 +1,4 @@
-from feed_sync import EpssRecord
+from feed_sync import EpssRecord, PocRecord
 from risk import calculate_risk_score, classify_priority, normalize_finding
 
 
@@ -50,3 +50,31 @@ def test_normalize_finding_handles_missing_optional_fields():
     assert doc["priority"] == "P0"
     assert doc["kev"] is True
     assert doc["package_name"] == "openssl"
+    assert doc["public_poc"] is False
+
+
+def test_normalize_finding_adds_public_poc_fields():
+    source = {
+        "agent": {"id": "001", "name": "ubuntu-1"},
+        "vulnerability": {"id": "CVE-2026-0001", "score": {"base": 7.8}},
+        "package": {"name": "sudo", "version": "1.9"},
+    }
+
+    doc = normalize_finding(
+        source,
+        kev_cves=set(),
+        epss_records={},
+        poc_records={
+            "CVE-2026-0001": PocRecord(
+                count=1,
+                references=("https://example.com/poc",),
+                sources=("internal",),
+            )
+        },
+    )
+
+    assert doc is not None
+    assert doc["public_poc"] is True
+    assert doc["poc_count"] == 1
+    assert doc["poc_references"] == ["https://example.com/poc"]
+    assert "public PoC available" in doc["reason"]

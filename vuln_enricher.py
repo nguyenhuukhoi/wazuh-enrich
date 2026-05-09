@@ -49,20 +49,34 @@ def configure_logging(level: str, log_format: str = "text") -> None:
 LOG = logging.getLogger("vuln_enricher")
 
 
-def load_local_or_sync_feeds(settings: Settings, force: bool = False) -> tuple[set[str], dict[str, Any]]:
+def load_local_or_sync_feeds(settings: Settings, force: bool = False) -> tuple[set[str], dict[str, Any], dict[str, Any]]:
     feed_sync = FeedSync(
         cache_dir=settings.cache_dir,
         kev_url=settings.cisa_kev_url,
         epss_url=settings.epss_url,
         timeout=settings.request_timeout_seconds,
         kev_file=settings.cisa_kev_file,
+        poc_file=settings.poc_feed_file,
     )
     return feed_sync.sync_all(force=force)
 
 
 def sync_feeds(settings: Settings, force: bool = False) -> None:
-    kev_cves, epss = load_local_or_sync_feeds(settings, force=force)
-    LOG.info("feeds_ready kev_cves=%s epss_records=%s", len(kev_cves), len(epss))
+    kev_cves, epss, poc = load_local_or_sync_feeds(settings, force=force)
+    LOG.info("feeds_ready kev_cves=%s epss_records=%s poc_records=%s", len(kev_cves), len(epss), len(poc))
+
+
+def sync_poc(settings: Settings) -> None:
+    feed_sync = FeedSync(
+        cache_dir=settings.cache_dir,
+        kev_url=settings.cisa_kev_url,
+        epss_url=settings.epss_url,
+        timeout=settings.request_timeout_seconds,
+        kev_file=settings.cisa_kev_file,
+        poc_file=settings.poc_feed_file,
+    )
+    poc = feed_sync.sync_poc()
+    LOG.info("poc_feed_ready poc_records=%s", len(poc))
 
 
 def enrich(
@@ -74,7 +88,7 @@ def enrich(
     dry_run: bool = False,
     send_alerts: bool = True,
 ) -> dict[str, Any]:
-    kev_cves, epss_records = load_local_or_sync_feeds(settings)
+    kev_cves, epss_records, poc_records = load_local_or_sync_feeds(settings)
     since = None if full or agent_id else state.data.get("last_processed_timestamp")
     enriched_docs: list[dict[str, Any]] = []
     malformed = 0
@@ -82,7 +96,7 @@ def enrich(
 
     for source in client.iter_vulnerability_findings(agent_id=agent_id, since=since):
         try:
-            doc = normalize_finding(source, kev_cves, epss_records)
+            doc = normalize_finding(source, kev_cves, epss_records, poc_records)
             if not doc:
                 malformed += 1
                 continue
@@ -152,7 +166,7 @@ def detect_new_agents(
     state: StateStore,
     dry_run: bool = False,
 ) -> dict[str, int]:
-    kev_cves, epss_records = load_local_or_sync_feeds(settings)
+    kev_cves, epss_records, poc_records = load_local_or_sync_feeds(settings)
     alerts = AlertManager(
         bot_token=settings.telegram_bot_token,
         chat_id=settings.telegram_chat_id,
@@ -172,7 +186,7 @@ def detect_new_agents(
         new_agents += 1
         enriched_docs = []
         for source in client.iter_vulnerability_findings(agent_id=agent_id):
-            doc = normalize_finding(source, kev_cves, epss_records)
+            doc = normalize_finding(source, kev_cves, epss_records, poc_records)
             if doc:
                 enriched_docs.append(doc)
 
@@ -230,6 +244,7 @@ def daemon(settings: Settings, dry_run: bool = False) -> None:
                     settings.epss_url,
                     settings.request_timeout_seconds,
                     kev_file=settings.cisa_kev_file,
+                    poc_file=settings.poc_feed_file,
                 ).sync_kev()
                 last_run["kev_sync_seconds"] = now
             if now - last_run["epss_sync_seconds"] >= schedule["epss_sync_seconds"]:
@@ -239,6 +254,7 @@ def daemon(settings: Settings, dry_run: bool = False) -> None:
                     settings.epss_url,
                     settings.request_timeout_seconds,
                     kev_file=settings.cisa_kev_file,
+                    poc_file=settings.poc_feed_file,
                 ).sync_epss()
                 last_run["epss_sync_seconds"] = now
             if now - last_run["enrichment_seconds"] >= schedule["enrichment_seconds"]:
@@ -267,6 +283,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("sync-feeds")
+    sub.add_parser("sync-poc")
     sub.add_parser("enrich-all")
     agent_parser = sub.add_parser("enrich-agent")
     agent_parser.add_argument("--agent-id", required=True)
@@ -286,6 +303,8 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "sync-feeds":
             sync_feeds(settings, force=True)
+        elif args.command == "sync-poc":
+            sync_poc(settings)
         elif args.command == "enrich-all":
             enrich(settings, client, state, full=True, dry_run=args.dry_run)
         elif args.command == "enrich-agent":

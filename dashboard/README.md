@@ -31,6 +31,7 @@ Create filter controls for:
 - `kev`: yes/no
 - `epss_score`: range slider
 - `cvss_score`: range slider
+- `public_poc`: yes/no
 - `package_name` or `affected_packages`: search box
 - `detected_at`, `first_detected_at`, `last_detected_at`: time picker
 
@@ -62,6 +63,8 @@ Columns:
 - `kev`
 - `epss_score`
 - `epss_percentile`
+- `public_poc`
+- `poc_count`
 - `cvss_score`
 - `affected_hosts_count`
 - `affected_packages`
@@ -102,6 +105,7 @@ Filter `wazuh-vuln-enriched-*` by selected `cve_id`.
 Show:
 
 - `cve_id`, `kev`, `epss_score`, `cvss_score`, `priority`, `reason`
+- PoC status: `public_poc`, `poc_count`, `poc_references`, `poc_sources`
 - Affected hosts: `agent_id`, `agent_name`, `agent_ip`, `os_name`, `os_version`
 - Package: `package_name`, `package_version`, `package_architecture`, `package_type`
 - `detected_at`
@@ -130,3 +134,4 @@ Show:
 - Top affected hosts: terms on `agent_name`, metric count or `total_cves`
 - Top affected packages: terms on `package_name` or `affected_packages`
 - New findings over time: date histogram on `detected_at`
+- Public PoC CVEs: metric/table filtered by `public_poc:true`

@@ -18,6 +18,8 @@
         "cve_id",
         "priority",
         "kev",
+        "public_poc",
+        "poc_count",
         "epss_score",
         "cvss_score",
         "affected_hosts_count",
@@ -64,6 +66,29 @@
       "size": 1000,
       "query": { "term": { "agent_id": "001" } },
       "sort": [{ "risk_score": "desc" }]
+    }
+  },
+  "public_poc_cves": {
+    "index": "wazuh-vuln-cve-summary-*",
+    "body": {
+      "size": 25,
+      "query": { "term": { "public_poc": true } },
+      "sort": [
+        { "risk_score": "desc" },
+        { "affected_hosts_count": "desc" }
+      ],
+      "_source": [
+        "cve_id",
+        "priority",
+        "kev",
+        "public_poc",
+        "poc_count",
+        "poc_references",
+        "epss_score",
+        "cvss_score",
+        "affected_hosts_count",
+        "affected_packages"
+      ]
     }
   }
 }

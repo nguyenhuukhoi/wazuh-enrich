@@ -17,6 +17,7 @@ Main flow:
    - Whether the CVE is in KEV.
    - EPSS score.
    - EPSS percentile.
+   - Whether a public PoC exists, if `POC_FEED_FILE` is configured.
    - CVSS score from Wazuh finding.
    - Priority `P0/P1/P2/P3`.
    - Risk score.
@@ -150,12 +151,75 @@ VERIFY_SSL: false
 
 Production should use `VERIFY_SSL: true` and configure `WAZUH_CA_CERT`.
 
+Optional public PoC enrichment:
+
+```bash
+export POC_FEED_FILE="/opt/wazuh-enrich/feeds/cve_poc.csv"
+```
+
+The PoC feed is intentionally local/offline so enrichment does not query GitHub, Exploit-DB, or any internet API per CVE. CSV format:
+
+```csv
+cve,url,source
+CVE-2026-0001,https://example.com/research-or-repo,internal
+```
+
+JSON formats are also supported:
+
+```json
+{
+  "CVE-2026-0001": [
+    {"url": "https://example.com/research-or-repo", "source": "internal"}
+  ]
+}
+```
+
+When a CVE appears in this feed, enriched documents include `public_poc`, `poc_count`, `poc_references`, and `poc_sources`.
+
+To build `cve_poc.csv` from trusted metadata without downloading PoC code, use [tools/build_poc_feed.py](tools/build_poc_feed.py).
+
+Recommended metadata sources:
+
+- Exploit-DB official metadata: https://gitlab.com/exploit-database/exploitdb
+- ProjectDiscovery nuclei templates: https://github.com/projectdiscovery/nuclei-templates
+- nomi-sec PoC-in-GitHub metadata: https://github.com/nomi-sec/PoC-in-GitHub
+- trickest CVE PoC metadata: https://github.com/trickest/cve
+
+Examples:
+
+```bash
+# Exploit-DB metadata CSV only. This does not download exploit code.
+python3 tools/build_poc_feed.py \
+  --exploitdb-csv "https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv" \
+  --output feeds/cve_poc.csv
+
+# Local nuclei-templates checkout. This reads template metadata only.
+python3 tools/build_poc_feed.py \
+  --nuclei-templates /data/security-feeds/nuclei-templates \
+  --output feeds/cve_poc.csv
+
+# Combine multiple local metadata repos.
+python3 tools/build_poc_feed.py \
+  --nuclei-templates /data/security-feeds/nuclei-templates \
+  --poc-in-github /data/security-feeds/PoC-in-GitHub \
+  --trickest-cve /data/security-feeds/trickest-cve \
+  --output feeds/cve_poc.csv
+```
+
+For production, run the feed-builder on a separate feed/mirror host and copy only `feeds/cve_poc.csv` to the Wazuh enrichment server.
+
 ## First Run
 
 1. Test feed download:
 
 ```bash
 python3 vuln_enricher.py sync-feeds
+```
+
+`sync-feeds` handles KEV, EPSS, and PoC metadata together. If you only want to refresh PoC metadata:
+
+```bash
+python3 vuln_enricher.py sync-poc
 ```
 
 2. Run dry-run first to validate logic without writing indices or sending Telegram alerts:
@@ -181,9 +245,16 @@ wazuh-vuln-host-summary-YYYY.MM.DD
 ## CLI Commands
 
 Download KEV and EPSS feeds:
+Download KEV, EPSS, and PoC metadata feeds:
 
 ```bash
 python3 vuln_enricher.py sync-feeds
+```
+
+Refresh only PoC metadata:
+
+```bash
+python3 vuln_enricher.py sync-poc
 ```
 
 Enrich all findings:
@@ -351,11 +422,12 @@ Summary:
 - Affected agents: 2
 - P0 CVEs: 4
 - KEV CVEs: 2
+- Public PoC CVEs: 1
 - EPSS >= 0.7: 3
 
 Top CVEs:
-1. CVE-2025-0001 | KEV=yes | EPSS=0.94 | CVSS=9.8 | hosts=72 | package=openssl
-2. CVE-2025-0002 | KEV=no | EPSS=0.88 | CVSS=8.8 | hosts=41 | package=nginx
+1. CVE-2025-0001 | KEV=yes | PoC=yes | EPSS=0.94 | CVSS=9.8 | hosts=72 | package=openssl
+2. CVE-2025-0002 | KEV=no | PoC=no | EPSS=0.88 | CVSS=8.8 | hosts=41 | package=nginx
 ```
 
 `Affected agents` is the number of unique Wazuh agent IDs affected by the CVEs in the alert. If the alert is built without enriched finding context, the service falls back to `Affected host-CVE pairs`, which is the sum of affected-host counts per CVE.
@@ -392,6 +464,7 @@ The dashboard should include:
 - Top affected hosts.
 - Top affected packages.
 - New findings over time.
+- Public PoC CVEs, using `public_poc:true`.
 
 Important: the production dashboard should read summary indices, not `wazuh-states-vulnerabilities-*` directly.
 

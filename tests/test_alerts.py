@@ -39,6 +39,7 @@ def test_alert_dedup_for_same_cve(tmp_path):
             "cvss_score": 9.8,
             "affected_hosts_count": 72,
             "affected_packages": ["openssl"],
+            "public_poc": True,
             "risk_score": 106.4,
         }
     ]
@@ -56,6 +57,8 @@ def test_alert_dedup_for_same_cve(tmp_path):
     assert "CRITICAL - Exploited CVEs detected" in manager.messages[0]
     assert "- Affected agents: 2" in manager.messages[0]
     assert "- Affected agents: 72" not in manager.messages[0]
+    assert "- Public PoC CVEs: 1" in manager.messages[0]
+    assert "PoC=yes" in manager.messages[0]
 
 
 def test_alert_summary_fallback_names_host_cve_pairs(tmp_path):

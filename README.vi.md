@@ -17,6 +17,7 @@ Flow chính:
    - CVE có nằm trong KEV không.
    - EPSS score.
    - EPSS percentile.
+   - CVE đã có public PoC chưa, nếu cấu hình `POC_FEED_FILE`.
    - CVSS score từ Wazuh finding.
    - Priority `P0/P1/P2/P3`.
    - Risk score.
@@ -150,12 +151,75 @@ VERIFY_SSL: false
 
 Production nên dùng `VERIFY_SSL: true` và cấu hình `WAZUH_CA_CERT`.
 
+Enrich thêm public PoC, tùy chọn:
+
+```bash
+export POC_FEED_FILE="/opt/wazuh-enrich/feeds/cve_poc.csv"
+```
+
+PoC feed được thiết kế là local/offline để service không query GitHub, Exploit-DB, hoặc internet API theo từng CVE. Format CSV:
+
+```csv
+cve,url,source
+CVE-2026-0001,https://example.com/research-or-repo,internal
+```
+
+JSON cũng được hỗ trợ:
+
+```json
+{
+  "CVE-2026-0001": [
+    {"url": "https://example.com/research-or-repo", "source": "internal"}
+  ]
+}
+```
+
+Khi CVE có trong feed này, enriched document sẽ có thêm `public_poc`, `poc_count`, `poc_references`, và `poc_sources`.
+
+Để build `cve_poc.csv` từ metadata nguồn uy tín mà không tải PoC code, dùng [tools/build_poc_feed.py](tools/build_poc_feed.py).
+
+Nguồn metadata khuyến nghị:
+
+- Exploit-DB official metadata: https://gitlab.com/exploit-database/exploitdb
+- ProjectDiscovery nuclei templates: https://github.com/projectdiscovery/nuclei-templates
+- nomi-sec PoC-in-GitHub metadata: https://github.com/nomi-sec/PoC-in-GitHub
+- trickest CVE PoC metadata: https://github.com/trickest/cve
+
+Ví dụ:
+
+```bash
+# Chỉ lấy metadata CSV của Exploit-DB. Không tải exploit code.
+python3 tools/build_poc_feed.py \
+  --exploitdb-csv "https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv" \
+  --output feeds/cve_poc.csv
+
+# Đọc local nuclei-templates checkout. Chỉ đọc metadata template.
+python3 tools/build_poc_feed.py \
+  --nuclei-templates /data/security-feeds/nuclei-templates \
+  --output feeds/cve_poc.csv
+
+# Gộp nhiều metadata repo local.
+python3 tools/build_poc_feed.py \
+  --nuclei-templates /data/security-feeds/nuclei-templates \
+  --poc-in-github /data/security-feeds/PoC-in-GitHub \
+  --trickest-cve /data/security-feeds/trickest-cve \
+  --output feeds/cve_poc.csv
+```
+
+Production nên chạy feed-builder trên một feed/mirror host riêng, rồi copy duy nhất file `feeds/cve_poc.csv` sang Wazuh enrichment server.
+
 ## Chạy Lần Đầu
 
 1. Test tải feed:
 
 ```bash
 python3 vuln_enricher.py sync-feeds
+```
+
+`sync-feeds` xử lý chung KEV, EPSS, và PoC metadata. Nếu chỉ muốn refresh PoC metadata:
+
+```bash
+python3 vuln_enricher.py sync-poc
 ```
 
 2. Chạy dry-run trước để kiểm tra logic mà chưa ghi index/chưa gửi Telegram:
@@ -180,10 +244,16 @@ wazuh-vuln-host-summary-YYYY.MM.DD
 
 ## Các Lệnh CLI
 
-Tải feed KEV và EPSS:
+Tải feed KEV, EPSS, và PoC metadata:
 
 ```bash
 python3 vuln_enricher.py sync-feeds
+```
+
+Refresh riêng PoC metadata:
+
+```bash
+python3 vuln_enricher.py sync-poc
 ```
 
 Enrich toàn bộ findings:
@@ -351,11 +421,12 @@ Summary:
 - Affected agents: 2
 - P0 CVEs: 4
 - KEV CVEs: 2
+- Public PoC CVEs: 1
 - EPSS >= 0.7: 3
 
 Top CVEs:
-1. CVE-2025-0001 | KEV=yes | EPSS=0.94 | CVSS=9.8 | hosts=72 | package=openssl
-2. CVE-2025-0002 | KEV=no | EPSS=0.88 | CVSS=8.8 | hosts=41 | package=nginx
+1. CVE-2025-0001 | KEV=yes | PoC=yes | EPSS=0.94 | CVSS=9.8 | hosts=72 | package=openssl
+2. CVE-2025-0002 | KEV=no | PoC=no | EPSS=0.88 | CVSS=8.8 | hosts=41 | package=nginx
 ```
 
 `Affected agents` là số Wazuh agent ID unique bị ảnh hưởng bởi các CVE trong alert. Nếu alert được build mà không có enriched finding context, service sẽ fallback sang `Affected host-CVE pairs`, nghĩa là tổng số affected-host count cộng theo từng CVE.
@@ -392,6 +463,7 @@ Dashboard nên có:
 - Top affected hosts.
 - Top affected packages.
 - New findings over time.
+- Public PoC CVEs, dùng filter `public_poc:true`.
 
 Quan trọng: dashboard production nên đọc summary index, không đọc trực tiếp `wazuh-states-vulnerabilities-*`.
 

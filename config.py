@@ -46,6 +46,7 @@ class Settings:
     cisa_kev_url: str
     cisa_kev_file: Path | None
     epss_url: str
+    poc_feed_file: Path | None
     telegram_bot_token: str
     telegram_chat_id: str
     alert_thresholds: dict[str, Any]
@@ -107,6 +108,7 @@ def load_config(path: str = "config.yaml") -> Settings:
         ),
         cisa_kev_file=Path(cfg["CISA_KEV_FILE"]) if cfg.get("CISA_KEV_FILE") else None,
         epss_url=cfg.get("EPSS_URL", "https://epss.empiricalsecurity.com/epss_scores-current.csv.gz"),
+        poc_feed_file=Path(cfg["POC_FEED_FILE"]) if cfg.get("POC_FEED_FILE") else None,
         telegram_bot_token=cfg.get("TELEGRAM_BOT_TOKEN", ""),
         telegram_chat_id=cfg.get("TELEGRAM_CHAT_ID", ""),
         alert_thresholds=cfg["ALERT_THRESHOLDS"],
