@@ -162,7 +162,7 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
     controls = [
         {
             "id": "public_poc_cve",
-            "fieldName": "cve_id",
+            "fieldName": "impact_cve_id",
             "indexPatternRefName": "control_0_index",
             "label": "Public PoC CVE impacting system",
             "type": "list",
@@ -175,7 +175,22 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
                 "ignoreTimeout": False,
             },
             "parent": "",
-            "query": "public_poc:true",
+        },
+        {
+            "id": "impact_host",
+            "fieldName": "impact_host",
+            "indexPatternRefName": "control_1_index",
+            "label": "Host impacted by public PoC",
+            "type": "list",
+            "options": {
+                "type": "terms",
+                "multiselect": True,
+                "size": 100,
+                "order": "desc",
+                "useTimeFilter": True,
+                "ignoreTimeout": False,
+            },
+            "parent": "",
         },
     ]
     vis_state = {
@@ -203,6 +218,7 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
         "references": [
             {"name": "kibanaSavedObjectMeta.searchSourceJSON.index", "type": "index-pattern", "id": index_ref},
             {"name": "control_0_index", "type": "index-pattern", "id": ENRICHED},
+            {"name": "control_1_index", "type": "index-pattern", "id": ENRICHED},
         ],
     }
 

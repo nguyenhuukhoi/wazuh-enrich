@@ -95,6 +95,7 @@ The default config now uses these production runtime paths:
 WAZUH_VULN_INDEX_PATTERN: wazuh-states-vulnerabilities-*
 AGENT_INVENTORY_INDEX_PATTERNS:
   - wazuh-states-inventory-system-*
+  - wazuh-states-inventory-interfaces-*
   - wazuh-states-inventory-networks-*
 
 CACHE_DIR: /var/lib/wazuh-enrich/cache
@@ -277,6 +278,7 @@ python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-poc
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-agent --agent-id 001
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml detect-new-agents
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml debug-agent-ip --agent-id 001
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml run-once
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml daemon
 ```
@@ -338,7 +340,7 @@ wazuh-vuln-enriched-*       time field: detected_at
 wazuh-vuln-cve-summary-*    time field: updated_at
 ```
 
-The imported dashboard intentionally contains only two panels:
+The imported dashboard intentionally contains only the operational panels:
 
 - Impact Filters.
 - Public PoC CVEs Impacting This System.
@@ -350,11 +352,14 @@ Dashboard import is optional and separate from enrichment:
 python3 dashboard/manage_saved_objects.py reimport --no-verify-ssl
 ```
 
-The filter panel uses `wazuh-vuln-enriched-*` and lists only CVEs with:
+The filter panel uses `wazuh-vuln-enriched-*` and has two dropdowns:
 
 ```text
-public_poc:true
+impact_cve_id
+impact_host
 ```
+
+Those fields are only written for findings where `public_poc:true`, so the dropdowns do not list global/non-impact CVEs.
 
 The CVE summary panel reads `wazuh-vuln-cve-summary-*` with:
 
@@ -389,8 +394,23 @@ curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
 - No findings: check `wazuh-states-vulnerabilities-*`.
 - CISA blocked: set `CISA_KEV_FILE` to a local JSON mirror.
 - PoC not visible: enable `POC_BUILD`, run `python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-poc-feed`, then `python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all`.
-- Agent IP is `0.0.0.0`: verify `wazuh-states-inventory-system-*` or `wazuh-states-inventory-networks-*` has `agent.host.ip`, then rerun `enrich-all`. The enricher joins those inventory indices by `agent.id`.
+- Agent IP is `0.0.0.0`: run `debug-agent-ip`, verify inventory indices have `agent.host.ip`, `host.ip`, `network.ip`, or another discovered IP field, then rerun `enrich-all`. The enricher joins those inventory indices by `agent.id`.
 - Dashboard slow: use summary indices, not raw Wazuh state indices.
+
+Quick inventory check for agent `002` from the enricher:
+
+```bash
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml debug-agent-ip --agent-id 002
+```
+
+Equivalent direct Wazuh Indexer query:
+
+```bash
+curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
+  "$WAZUH_INDEXER_URL/wazuh-states-inventory-system-*,wazuh-states-inventory-interfaces-*,wazuh-states-inventory-networks-*/_search" \
+  -H 'Content-Type: application/json' \
+  -d '{"size":5,"query":{"term":{"agent.id":"002"}},"_source":["agent.id","agent.name","agent.host.ip","host.ip","network.*","related.ip","interface.*"]}'
+```
 
 ## Tests
 

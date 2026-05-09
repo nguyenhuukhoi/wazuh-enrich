@@ -28,6 +28,7 @@ def first_path(data: dict[str, Any], paths: list[str], default: Any = None) -> A
 
 
 def first_valid_ip(data: dict[str, Any], paths: list[str], default: str = "") -> str:
+    candidates: list[tuple[int, str]] = []
     for path in paths:
         value = get_path(data, path)
         values = value if isinstance(value, list) else [value]
@@ -39,10 +40,22 @@ def first_valid_ip(data: dict[str, Any], paths: list[str], default: str = "") ->
                 ip = ipaddress.ip_address(text)
             except ValueError:
                 continue
-            if ip.is_unspecified:
+            if ip.is_unspecified or ip.is_loopback:
                 continue
-            return text
-    return default
+            candidates.append((_ip_rank(ip), text))
+    if not candidates:
+        return default
+    return sorted(candidates, key=lambda candidate: candidate[0])[0][1]
+
+
+def _ip_rank(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> int:
+    if isinstance(ip, ipaddress.IPv4Address) and not ip.is_link_local:
+        return 0
+    if isinstance(ip, ipaddress.IPv6Address) and not ip.is_link_local:
+        return 1
+    if isinstance(ip, ipaddress.IPv4Address):
+        return 2
+    return 3
 
 
 def as_float(value: Any, default: float = 0.0) -> float:
@@ -135,6 +148,11 @@ def normalize_finding(
         "recommended_action": recommended_action(priority, kev, epss.score),
         "enriched_at": datetime.now(timezone.utc).isoformat(),
     }
+    if poc:
+        doc["impact_cve_id"] = cve_id
+        doc["impact_agent_id"] = agent_id
+        if doc["agent_name"]:
+            doc["impact_host"] = doc["agent_name"]
     return doc
 
 

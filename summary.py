@@ -32,37 +32,45 @@ def build_cve_summary(enriched_docs: list[dict[str, Any]]) -> list[dict[str, Any
         packages = Counter(str(doc.get("package_name", "")) for doc in docs)
         hosts = {str(doc.get("agent_id", "")) for doc in docs if doc.get("agent_id")}
         highest = max(docs, key=lambda doc: float(doc.get("risk_score", 0.0)))
-        summaries.append(
-            {
-                "cve_id": cve_id,
-                "cve_year": highest.get("cve_year"),
-                "priority": priorities[0] if priorities else "P3",
-                "kev": any(bool(doc.get("kev")) for doc in docs),
-                "epss_score": max(float(doc.get("epss_score", 0.0)) for doc in docs),
-                "epss_percentile": max(float(doc.get("epss_percentile", 0.0)) for doc in docs),
-                "public_poc": any(bool(doc.get("public_poc")) for doc in docs),
-                "poc_count": max(int(doc.get("poc_count", 0)) for doc in docs),
-                "poc_references": sorted(
-                    {
-                        reference
-                        for doc in docs
-                        for reference in (doc.get("poc_references") or [])
-                        if reference
-                    }
-                )[:10],
-                "poc_sources": sorted(
-                    {source for doc in docs for source in (doc.get("poc_sources") or []) if source}
-                )[:10],
-                "cvss_score": max(float(doc.get("cvss_score", 0.0)) for doc in docs),
-                "affected_hosts_count": len(hosts),
-                "affected_packages": _top(packages),
-                "first_detected_at": _min_dt([doc.get("first_detected_at") or doc.get("detected_at") for doc in docs]),
-                "last_detected_at": _max_dt([doc.get("last_detected_at") or doc.get("detected_at") for doc in docs]),
-                "risk_score": max(float(doc.get("risk_score", 0.0)) for doc in docs),
-                "reason": highest.get("reason", ""),
-                "updated_at": now,
-            }
-        )
+        public_poc = any(bool(doc.get("public_poc")) for doc in docs)
+        summary = {
+            "cve_id": cve_id,
+            "cve_year": highest.get("cve_year"),
+            "priority": priorities[0] if priorities else "P3",
+            "kev": any(bool(doc.get("kev")) for doc in docs),
+            "epss_score": max(float(doc.get("epss_score", 0.0)) for doc in docs),
+            "epss_percentile": max(float(doc.get("epss_percentile", 0.0)) for doc in docs),
+            "public_poc": public_poc,
+            "poc_count": max(int(doc.get("poc_count", 0)) for doc in docs),
+            "poc_references": sorted(
+                {
+                    reference
+                    for doc in docs
+                    for reference in (doc.get("poc_references") or [])
+                    if reference
+                }
+            )[:10],
+            "poc_sources": sorted(
+                {source for doc in docs for source in (doc.get("poc_sources") or []) if source}
+            )[:10],
+            "cvss_score": max(float(doc.get("cvss_score", 0.0)) for doc in docs),
+            "affected_hosts_count": len(hosts),
+            "affected_packages": _top(packages),
+            "first_detected_at": _min_dt([doc.get("first_detected_at") or doc.get("detected_at") for doc in docs]),
+            "last_detected_at": _max_dt([doc.get("last_detected_at") or doc.get("detected_at") for doc in docs]),
+            "risk_score": max(float(doc.get("risk_score", 0.0)) for doc in docs),
+            "reason": highest.get("reason", ""),
+            "updated_at": now,
+        }
+        if public_poc:
+            summary["impact_cve_id"] = cve_id
+            summary["impact_agent_id"] = sorted(
+                {str(doc.get("agent_id", "")) for doc in docs if doc.get("agent_id")}
+            )
+            summary["impact_host"] = sorted(
+                {str(doc.get("agent_name", "")) for doc in docs if doc.get("agent_name")}
+            )
+        summaries.append(summary)
     return summaries
 
 

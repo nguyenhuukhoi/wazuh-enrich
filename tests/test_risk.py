@@ -1,5 +1,5 @@
 from feed_sync import EpssRecord, PocRecord
-from risk import calculate_risk_score, classify_priority, normalize_finding
+from risk import calculate_risk_score, classify_priority, first_valid_ip, normalize_finding
 
 
 def test_priority_p0_for_kev():
@@ -75,6 +75,9 @@ def test_normalize_finding_adds_public_poc_fields():
 
     assert doc is not None
     assert doc["public_poc"] is True
+    assert doc["impact_cve_id"] == "CVE-2026-0001"
+    assert doc["impact_agent_id"] == "001"
+    assert doc["impact_host"] == "ubuntu-1"
     assert doc["poc_count"] == 1
     assert doc["poc_references"] == ["https://example.com/poc"]
     assert "public PoC available" in doc["reason"]
@@ -112,3 +115,11 @@ def test_normalize_finding_uses_inventory_metadata_for_agent_ip():
     assert doc["agent_ip"] == "10.10.10.26"
     assert doc["os_name"] == "Ubuntu"
     assert doc["os_version"] == "24.04"
+
+
+def test_first_valid_ip_prefers_ipv4_over_ipv6_link_local():
+    source = {
+        "network": {"ip": ["fe80::f816:3eff:feac:c25d", "2.11.3.143"]},
+    }
+
+    assert first_valid_ip(source, ["network.ip"]) == "2.11.3.143"

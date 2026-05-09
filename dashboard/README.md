@@ -64,11 +64,12 @@ If you imported into a non-default tenant, add:
 
 Data view: `wazuh-vuln-enriched-*`
 
-Control:
+Controls:
 
-- `Public PoC CVE impacting system`: dropdown on `cve_id`, filtered by `public_poc:true`.
+- `Public PoC CVE impacting system`: dropdown on `impact_cve_id`.
+- `Host impacted by public PoC`: dropdown on `impact_host`.
 
-This list comes from enriched findings, so it only contains public-PoC CVEs that currently affect at least one host/package.
+These fields are only written when `public_poc:true`, so the dropdowns only contain public-PoC CVEs and hosts currently affected by them.
 
 ### Public PoC CVEs Impacting This System
 
@@ -129,6 +130,8 @@ The enricher ignores placeholder IPs like `0.0.0.0`. It first tries the vulnerab
 agent.ip
 agent.host.ip
 host.ip
+network.ip
+interface.ip
 related.ip
 ```
 
@@ -136,6 +139,7 @@ The default inventory indices are:
 
 ```text
 wazuh-states-inventory-system-*
+wazuh-states-inventory-interfaces-*
 wazuh-states-inventory-networks-*
 ```
 

@@ -33,5 +33,6 @@ POC_BUILD:
     assert settings.poc_build["enabled"] is True
     assert settings.agent_inventory_index_patterns == [
         "wazuh-states-inventory-system-*",
+        "wazuh-states-inventory-interfaces-*",
         "wazuh-states-inventory-networks-*",
     ]

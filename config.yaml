@@ -10,6 +10,7 @@ VERIFY_SSL: true
 WAZUH_VULN_INDEX_PATTERN: wazuh-states-vulnerabilities-*
 AGENT_INVENTORY_INDEX_PATTERNS:
   - wazuh-states-inventory-system-*
+  - wazuh-states-inventory-interfaces-*
   - wazuh-states-inventory-networks-*
 ENRICHED_INDEX_PREFIX: wazuh-vuln-enriched
 CVE_SUMMARY_INDEX_PREFIX: wazuh-vuln-cve-summary

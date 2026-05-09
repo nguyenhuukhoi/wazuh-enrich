@@ -97,6 +97,7 @@ Config mặc định đã dùng các runtime path production này:
 WAZUH_VULN_INDEX_PATTERN: wazuh-states-vulnerabilities-*
 AGENT_INVENTORY_INDEX_PATTERNS:
   - wazuh-states-inventory-system-*
+  - wazuh-states-inventory-interfaces-*
   - wazuh-states-inventory-networks-*
 
 CACHE_DIR: /var/lib/wazuh-enrich/cache
@@ -298,6 +299,7 @@ python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-poc
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-agent --agent-id 001
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml detect-new-agents
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml debug-agent-ip --agent-id 001
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml run-once
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml daemon
 ```
@@ -384,11 +386,14 @@ python3 dashboard/manage_saved_objects.py reimport --no-verify-ssl
 
 Import dashboard không nằm trong flow enrich/daemon. Dashboard chỉ đọc index đã được service cập nhật.
 
-Panel filter lấy từ `wazuh-vuln-enriched-*` và chỉ list CVE có:
+Panel filter lấy từ `wazuh-vuln-enriched-*` và có 2 dropdown:
 
 ```text
-public_poc:true
+impact_cve_id
+impact_host
 ```
+
+Hai field này chỉ được ghi khi `public_poc:true`, nên dropdown không list CVE global hoặc CVE không impact.
 
 Panel CVE summary lấy từ `wazuh-vuln-cve-summary-*` với điều kiện:
 
@@ -448,9 +453,24 @@ PoC không hiện:
 
 Agent IP hiện `0.0.0.0`:
 
-- Kiểm tra `wazuh-states-inventory-system-*` hoặc `wazuh-states-inventory-networks-*` có field `agent.host.ip`.
+- Chạy `debug-agent-ip`, kiểm tra inventory index có `agent.host.ip`, `host.ip`, `network.ip`, hoặc field IP khác mà tool discovery tìm được.
 - Chạy lại `enrich-all`.
 - Enricher sẽ join các inventory index đó theo `agent.id` để lấy IP thật.
+
+Query kiểm tra nhanh agent `002` bằng enricher:
+
+```bash
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml debug-agent-ip --agent-id 002
+```
+
+Query trực tiếp Wazuh Indexer tương đương:
+
+```bash
+curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
+  "$WAZUH_INDEXER_URL/wazuh-states-inventory-system-*,wazuh-states-inventory-interfaces-*,wazuh-states-inventory-networks-*/_search" \
+  -H 'Content-Type: application/json' \
+  -d '{"size":5,"query":{"term":{"agent.id":"002"}},"_source":["agent.id","agent.name","agent.host.ip","host.ip","network.*","related.ip","interface.*"]}'
+```
 
 Dashboard chậm:
 

@@ -98,7 +98,11 @@ def load_config(path: str = "config.yaml") -> Settings:
         agent_inventory_index_patterns=_as_list(
             cfg.get(
                 "AGENT_INVENTORY_INDEX_PATTERNS",
-                ["wazuh-states-inventory-system-*", "wazuh-states-inventory-networks-*"],
+                [
+                    "wazuh-states-inventory-system-*",
+                    "wazuh-states-inventory-interfaces-*",
+                    "wazuh-states-inventory-networks-*",
+                ],
             )
         ),
         enriched_index_prefix=cfg["ENRICHED_INDEX_PREFIX"],

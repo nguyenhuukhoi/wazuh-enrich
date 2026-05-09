@@ -237,6 +237,12 @@ def detect_new_agents(
     return result
 
 
+def debug_agent_ip(settings: Settings, client: WazuhIndexerClient, agent_id: str) -> dict[str, Any]:
+    result = client.sample_agent_inventory(agent_id)
+    print(json.dumps(result, indent=2, ensure_ascii=True, sort_keys=True))
+    return result
+
+
 def run_once(settings: Settings, dry_run: bool = False) -> None:
     state = StateStore(settings.state_file)
     client = WazuhIndexerClient(settings)
@@ -333,6 +339,8 @@ def build_parser() -> argparse.ArgumentParser:
     agent_parser = sub.add_parser("enrich-agent")
     agent_parser.add_argument("--agent-id", required=True)
     sub.add_parser("detect-new-agents")
+    debug_ip_parser = sub.add_parser("debug-agent-ip")
+    debug_ip_parser.add_argument("--agent-id", required=True)
     sub.add_parser("run-once")
     sub.add_parser("daemon")
     return parser
@@ -358,6 +366,8 @@ def main(argv: list[str] | None = None) -> int:
             enrich(settings, client, state, agent_id=args.agent_id, full=True, dry_run=args.dry_run)
         elif args.command == "detect-new-agents":
             detect_new_agents(settings, client, state, dry_run=args.dry_run)
+        elif args.command == "debug-agent-ip":
+            debug_agent_ip(settings, client, args.agent_id)
         elif args.command == "run-once":
             run_once(settings, dry_run=args.dry_run)
             return 0

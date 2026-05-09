@@ -10,6 +10,15 @@ from risk import first_path, first_valid_ip
 
 LOG = logging.getLogger(__name__)
 
+KNOWN_AGENT_IP_FIELDS = [
+    "agent.host.ip",
+    "host.ip",
+    "network.ip",
+    "interface.ip",
+    "related.ip",
+    "agent.ip",
+]
+
 SOURCE_FIELDS = [
     "agent.id",
     "agent.name",
@@ -36,12 +45,9 @@ SOURCE_FIELDS = [
 AGENT_METADATA_FIELDS = [
     "agent.id",
     "agent.name",
-    "agent.ip",
-    "agent.host.ip",
     "agent.host.os.*",
-    "host.ip",
     "host.os.*",
-    "related.ip",
+    *KNOWN_AGENT_IP_FIELDS,
 ]
 
 
@@ -75,6 +81,9 @@ class WazuhIndexerClient:
                     "agent_id": {"type": "keyword"},
                     "agent_name": {"type": "keyword"},
                     "agent_ip": {"type": "ip", "ignore_malformed": True},
+                    "impact_cve_id": {"type": "keyword"},
+                    "impact_agent_id": {"type": "keyword"},
+                    "impact_host": {"type": "keyword"},
                     "os_name": {"type": "keyword"},
                     "os_version": {"type": "keyword"},
                     "package_name": {"type": "keyword"},
@@ -83,6 +92,9 @@ class WazuhIndexerClient:
                     "epss_score": {"type": "float"},
                     "epss_percentile": {"type": "float"},
                     "public_poc": {"type": "boolean"},
+                    "impact_cve_id": {"type": "keyword"},
+                    "impact_agent_id": {"type": "keyword"},
+                    "impact_host": {"type": "keyword"},
                     "poc_count": {"type": "integer"},
                     "poc_references": {"type": "keyword"},
                     "poc_sources": {"type": "keyword"},
@@ -173,7 +185,9 @@ class WazuhIndexerClient:
         if not patterns:
             return {}
         metadata: dict[str, dict[str, Any]] = {}
-        body = {"query": {"match_all": {}}, "_source": AGENT_METADATA_FIELDS}
+        ip_fields = self.discover_agent_ip_fields(patterns)
+        source_fields = self._dedupe([*AGENT_METADATA_FIELDS, *ip_fields])
+        body = {"query": {"match_all": {}}, "_source": source_fields}
         try:
             sources = self._scroll_sources(",".join(patterns), body, ignore_unavailable=True)
             for source in sources:
@@ -181,7 +195,7 @@ class WazuhIndexerClient:
                 if not agent_id:
                     continue
                 current = metadata.setdefault(agent_id, {})
-                ip = first_valid_ip(source, ["agent.host.ip", "host.ip", "related.ip", "agent.ip"], "")
+                ip = first_valid_ip(source, ip_fields, "")
                 if ip and not current.get("agent_ip"):
                     current["agent_ip"] = ip
                 agent_name = first_path(source, ["agent.name"], "")
@@ -195,8 +209,47 @@ class WazuhIndexerClient:
                     current["os_version"] = os_version
         except Exception as exc:
             LOG.warning("agent_metadata_load_failed patterns=%s error=%s", patterns, exc)
-        LOG.info("agent_metadata_loaded agents=%s patterns=%s", len(metadata), patterns)
+        LOG.info("agent_metadata_loaded agents=%s patterns=%s ip_fields=%s", len(metadata), patterns, ip_fields)
         return metadata
+
+    def discover_agent_ip_fields(self, patterns: list[str]) -> list[str]:
+        discovered: list[str] = []
+        index = ",".join(patterns)
+        try:
+            response = self.client.field_caps(
+                index=index,
+                params={"fields": "*ip*,*IP*", "ignore_unavailable": "true"},
+            )
+            for field_name, caps in (response.get("fields") or {}).items():
+                if self._looks_like_ip_field(field_name, caps):
+                    discovered.append(field_name)
+        except Exception as exc:
+            LOG.warning("agent_ip_field_discovery_failed patterns=%s error=%s", patterns, exc)
+        fields = self._dedupe([*KNOWN_AGENT_IP_FIELDS, *sorted(discovered)])
+        LOG.info("agent_ip_fields_discovered patterns=%s fields=%s", patterns, fields)
+        return fields
+
+    def sample_agent_inventory(self, agent_id: str, limit: int = 5) -> dict[str, Any]:
+        patterns = [pattern for pattern in self.settings.agent_inventory_index_patterns if pattern]
+        if not patterns:
+            return {"patterns": [], "ip_fields": [], "documents": [], "selected_metadata": {}}
+        ip_fields = self.discover_agent_ip_fields(patterns)
+        source_fields = self._dedupe([*AGENT_METADATA_FIELDS, *ip_fields])
+        body = {
+            "query": {"term": {"agent.id": agent_id}},
+            "_source": source_fields,
+        }
+        documents = []
+        for source in self._scroll_sources(",".join(patterns), body, ignore_unavailable=True):
+            documents.append(source)
+            if len(documents) >= limit:
+                break
+        return {
+            "patterns": patterns,
+            "ip_fields": ip_fields,
+            "documents": documents,
+            "selected_metadata": self._metadata_from_sources(documents, ip_fields).get(agent_id, {}),
+        }
 
     def list_agents_with_vulnerabilities(self) -> list[dict[str, str]]:
         agents: list[dict[str, str]] = []
@@ -268,9 +321,11 @@ class WazuhIndexerClient:
             response = self.client.search(
                 index=index,
                 body=body,
-                scroll=self.settings.scroll_ttl,
-                size=self.settings.page_size,
-                ignore_unavailable=ignore_unavailable,
+                params={
+                    "scroll": self.settings.scroll_ttl,
+                    "size": self.settings.page_size,
+                    "ignore_unavailable": str(ignore_unavailable).lower(),
+                },
             )
             scroll_id = response.get("_scroll_id")
             while True:
@@ -282,7 +337,7 @@ class WazuhIndexerClient:
                     source["_wazuh_source_index"] = hit.get("_index")
                     source["_wazuh_source_id"] = hit.get("_id")
                     yield source
-                response = self.client.scroll(scroll_id=scroll_id, scroll=self.settings.scroll_ttl)
+                response = self.client.scroll(scroll_id=scroll_id, params={"scroll": self.settings.scroll_ttl})
                 scroll_id = response.get("_scroll_id")
         finally:
             if scroll_id:
@@ -295,3 +350,45 @@ class WazuhIndexerClient:
     def _doc_id(doc: dict[str, Any], id_fields: list[str]) -> str:
         raw = "|".join(str(doc.get(field, "")) for field in id_fields)
         return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _metadata_from_sources(sources: list[dict[str, Any]], ip_fields: list[str]) -> dict[str, dict[str, Any]]:
+        metadata: dict[str, dict[str, Any]] = {}
+        for source in sources:
+            agent_id = str(first_path(source, ["agent.id"], ""))
+            if not agent_id:
+                continue
+            current = metadata.setdefault(agent_id, {})
+            ip = first_valid_ip(source, ip_fields, "")
+            if ip and not current.get("agent_ip"):
+                current["agent_ip"] = ip
+            agent_name = first_path(source, ["agent.name"], "")
+            if agent_name and not current.get("agent_name"):
+                current["agent_name"] = agent_name
+            os_name = first_path(source, ["host.os.name", "agent.host.os.name", "host.os.full"], "")
+            if os_name and not current.get("os_name"):
+                current["os_name"] = os_name
+            os_version = first_path(source, ["host.os.version", "agent.host.os.version"], "")
+            if os_version and not current.get("os_version"):
+                current["os_version"] = os_version
+        return metadata
+
+    @staticmethod
+    def _dedupe(values: list[str]) -> list[str]:
+        seen = set()
+        result = []
+        for value in values:
+            if value in seen:
+                continue
+            seen.add(value)
+            result.append(value)
+        return result
+
+    @staticmethod
+    def _looks_like_ip_field(field_name: str, caps: dict[str, Any]) -> bool:
+        lower = field_name.lower()
+        tokens = lower.replace("-", "_").replace(".", "_").split("_")
+        if "ip" not in tokens and not lower.endswith("ip"):
+            return False
+        field_types = set(caps.keys())
+        return bool(field_types & {"ip", "keyword", "text"})
