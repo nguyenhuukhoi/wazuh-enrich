@@ -336,7 +336,7 @@ Top CVEs:
 Create these data views:
 
 ```text
-wazuh-vuln-enriched-*       time field: detected_at
+wazuh-vuln-enriched-*       time field: enriched_at
 wazuh-vuln-cve-summary-*    time field: updated_at
 ```
 
@@ -361,6 +361,7 @@ impact_host
 
 Those fields are only written for findings where `public_poc:true`, so the dropdowns do not list global/non-impact CVEs.
 The imported controls use the `.keyword` subfields for terms aggregation.
+The enriched data view uses `enriched_at` as its time field so host impact tables show the latest enrichment state instead of hiding older findings by `detected_at`.
 
 The CVE summary panel reads `wazuh-vuln-cve-summary-*` with:
 

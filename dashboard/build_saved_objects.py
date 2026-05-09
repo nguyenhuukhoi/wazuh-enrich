@@ -326,7 +326,7 @@ def build_objects() -> list[dict[str, Any]]:
         "recommended_action",
     ]
     return [
-        index_pattern(ENRICHED, "wazuh-vuln-enriched-*", "detected_at"),
+        index_pattern(ENRICHED, "wazuh-vuln-enriched-*", "enriched_at"),
         index_pattern(CVE_SUMMARY, "wazuh-vuln-cve-summary-*", "updated_at"),
         controls_vis("vis-impact-controls", "Impact Filters", ENRICHED),
         saved_search(

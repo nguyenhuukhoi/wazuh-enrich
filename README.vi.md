@@ -368,7 +368,7 @@ Bạn có thể tự tạo dashboard thủ công hoặc import saved objects tro
 Data views cần có:
 
 ```text
-wazuh-vuln-enriched-*       time field: detected_at
+wazuh-vuln-enriched-*       time field: enriched_at
 wazuh-vuln-cve-summary-*    time field: updated_at
 ```
 
@@ -395,6 +395,7 @@ impact_host
 
 Hai field này chỉ được ghi khi `public_poc:true`, nên dropdown không list CVE global hoặc CVE không impact.
 Control import dùng subfield `.keyword` để terms aggregation không bị lỗi `Bad Request`.
+Data view enriched dùng `enriched_at` làm time field để bảng host impact hiển thị trạng thái enrich mới nhất, không bị ẩn host vì `detected_at` quá cũ so với time picker.
 
 Panel CVE summary lấy từ `wazuh-vuln-cve-summary-*` với điều kiện:
 

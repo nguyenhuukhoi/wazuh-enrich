@@ -20,7 +20,7 @@ dashboard/wazuh-vuln-enrichment.ndjson
 The import creates 6 saved objects:
 
 - Data view: `wazuh-vuln-cve-summary-*`
-- Data view: `wazuh-vuln-enriched-*`
+- Data view: `wazuh-vuln-enriched-*` with time field `enriched_at`
 - Visualization: `Impact Filters`
 - Search: `Public PoC CVEs Impacting This System`
 - Search: `Hosts Affected by Public PoC CVEs`
@@ -144,3 +144,7 @@ wazuh-states-inventory-networks-*
 ```
 
 If `agent_ip` is still empty or `0.0.0.0` after `enrich-all`, check that those inventory indices contain a real `agent.host.ip` for the agent.
+
+## Time Field
+
+The imported `wazuh-vuln-enriched-*` data view uses `enriched_at` as the time field. This keeps the host impact table aligned with the latest enrichment run. If it uses `detected_at`, the dashboard time picker can hide hosts whose vulnerability was detected earlier than the selected time range even though the host is still affected.
