@@ -394,6 +394,7 @@ impact_host
 ```
 
 Hai field này chỉ được ghi khi `public_poc:true`, nên dropdown không list CVE global hoặc CVE không impact.
+Control import dùng subfield `.keyword` để terms aggregation không bị lỗi `Bad Request`.
 
 Panel CVE summary lấy từ `wazuh-vuln-cve-summary-*` với điều kiện:
 

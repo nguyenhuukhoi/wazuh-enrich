@@ -10,6 +10,12 @@ from risk import first_path, first_valid_ip
 
 LOG = logging.getLogger(__name__)
 
+
+IMPACT_FIELD_MAPPING = {
+    "type": "text",
+    "fields": {"keyword": {"type": "keyword", "ignore_above": 256}},
+}
+
 KNOWN_AGENT_IP_FIELDS = [
     "agent.host.ip",
     "host.ip",
@@ -81,9 +87,9 @@ class WazuhIndexerClient:
                     "agent_id": {"type": "keyword"},
                     "agent_name": {"type": "keyword"},
                     "agent_ip": {"type": "ip", "ignore_malformed": True},
-                    "impact_cve_id": {"type": "keyword"},
-                    "impact_agent_id": {"type": "keyword"},
-                    "impact_host": {"type": "keyword"},
+                    "impact_cve_id": IMPACT_FIELD_MAPPING,
+                    "impact_agent_id": IMPACT_FIELD_MAPPING,
+                    "impact_host": IMPACT_FIELD_MAPPING,
                     "os_name": {"type": "keyword"},
                     "os_version": {"type": "keyword"},
                     "package_name": {"type": "keyword"},
@@ -92,9 +98,9 @@ class WazuhIndexerClient:
                     "epss_score": {"type": "float"},
                     "epss_percentile": {"type": "float"},
                     "public_poc": {"type": "boolean"},
-                    "impact_cve_id": {"type": "keyword"},
-                    "impact_agent_id": {"type": "keyword"},
-                    "impact_host": {"type": "keyword"},
+                    "impact_cve_id": IMPACT_FIELD_MAPPING,
+                    "impact_agent_id": IMPACT_FIELD_MAPPING,
+                    "impact_host": IMPACT_FIELD_MAPPING,
                     "poc_count": {"type": "integer"},
                     "poc_references": {"type": "keyword"},
                     "poc_sources": {"type": "keyword"},

@@ -66,8 +66,8 @@ Data view: `wazuh-vuln-enriched-*`
 
 Controls:
 
-- `Public PoC CVE impacting system`: dropdown on `impact_cve_id`.
-- `Host impacted by public PoC`: dropdown on `impact_host`.
+- `Public PoC CVE impacting system`: dropdown on `impact_cve_id.keyword`.
+- `Host impacted by public PoC`: dropdown on `impact_host.keyword`.
 
 These fields are only written when `public_poc:true`, so the dropdowns only contain public-PoC CVEs and hosts currently affected by them.
 

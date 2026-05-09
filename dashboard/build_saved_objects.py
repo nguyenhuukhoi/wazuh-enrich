@@ -162,7 +162,7 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
     controls = [
         {
             "id": "public_poc_cve",
-            "fieldName": "impact_cve_id",
+            "fieldName": "impact_cve_id.keyword",
             "indexPatternRefName": "control_0_index",
             "label": "Public PoC CVE impacting system",
             "type": "list",
@@ -178,7 +178,7 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
         },
         {
             "id": "impact_host",
-            "fieldName": "impact_host",
+            "fieldName": "impact_host.keyword",
             "indexPatternRefName": "control_1_index",
             "label": "Host impacted by public PoC",
             "type": "list",

@@ -360,6 +360,7 @@ impact_host
 ```
 
 Those fields are only written for findings where `public_poc:true`, so the dropdowns do not list global/non-impact CVEs.
+The imported controls use the `.keyword` subfields for terms aggregation.
 
 The CVE summary panel reads `wazuh-vuln-cve-summary-*` with:
 
