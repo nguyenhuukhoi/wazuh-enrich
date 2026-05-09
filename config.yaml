@@ -12,8 +12,8 @@ ENRICHED_INDEX_PREFIX: wazuh-vuln-enriched
 CVE_SUMMARY_INDEX_PREFIX: wazuh-vuln-cve-summary
 HOST_SUMMARY_INDEX_PREFIX: wazuh-vuln-host-summary
 
-CACHE_DIR: .cache
-STATE_FILE: .cache/state.json
+CACHE_DIR: /var/lib/wazuh-enrich/cache
+STATE_FILE: /var/lib/wazuh-enrich/state.json
 PAGE_SIZE: 2000
 BULK_SIZE: 1000
 REQUEST_TIMEOUT_SECONDS: 30
@@ -32,7 +32,7 @@ POC_FEED_FILE: ${POC_FEED_FILE}
 POC_BUILD:
   enabled: false
   interval_seconds: 86400
-  output_file: feeds/cve_poc.csv
+  output_file: /var/lib/wazuh-enrich/feeds/cve_poc.csv
   # Can be an HTTPS metadata URL or a local file path.
   # For offline production, replace this with a local mirror path, for example:
   # /data/security-feeds/exploitdb/files_exploits.csv

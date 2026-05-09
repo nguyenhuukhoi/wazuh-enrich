@@ -44,25 +44,68 @@ Dashboards should read these indices, not `wazuh-states-vulnerabilities-*` direc
 
 ## Install
 
+Install the package dependencies and clone the project into `/opt/wazuh-enrich`:
+
 ```bash
-sudo mkdir -p /opt/wazuh-enrich
+sudo apt-get update
+sudo apt-get install -y git python3 python3-venv python3-pip
+
+cd /opt
+sudo git clone https://github.com/nguyenhuukhoi/wazuh-enrich.git
 sudo chown -R "$USER:$USER" /opt/wazuh-enrich
 cd /opt/wazuh-enrich
 
-python3.10 -m venv .venv
-. .venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
 pip install -r requirements.txt
+deactivate
+
+sudo chown -R root:root /opt/wazuh-enrich
+```
+
+If the directory already exists, update it instead:
+
+```bash
+cd /opt/wazuh-enrich
+sudo chown -R "$USER:$USER" /opt/wazuh-enrich
+git pull
+source .venv/bin/activate
+pip install -U pip
+pip install -r requirements.txt
+deactivate
+sudo chown -R root:root /opt/wazuh-enrich
 ```
 
 ## Configuration
 
-Create:
+Use this production layout:
 
 ```bash
-sudo nano /etc/wazuh-enrich.env
+sudo mkdir -p /etc/wazuh-enrich /var/lib/wazuh-enrich/cache /var/lib/wazuh-enrich/feeds
+sudo cp config.yaml /etc/wazuh-enrich/config.yaml
+sudo chown -R root:root /etc/wazuh-enrich /var/lib/wazuh-enrich
+sudo chmod 700 /etc/wazuh-enrich
+sudo chmod 600 /etc/wazuh-enrich/config.yaml
 ```
 
-Example:
+The default config now uses these production runtime paths:
+
+```yaml
+CACHE_DIR: /var/lib/wazuh-enrich/cache
+STATE_FILE: /var/lib/wazuh-enrich/state.json
+
+POC_BUILD:
+  output_file: /var/lib/wazuh-enrich/feeds/cve_poc.csv
+```
+
+Create the environment file:
+
+```bash
+sudo nano /etc/wazuh-enrich/wazuh-enrich.env
+```
+
+Example `/etc/wazuh-enrich/wazuh-enrich.env`:
 
 ```bash
 WAZUH_INDEXER_URL=https://127.0.0.1:9200
@@ -71,6 +114,13 @@ WAZUH_INDEXER_PASSWORD=your-password
 WAZUH_CA_CERT=/etc/filebeat/certs/root-ca.pem
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
+```
+
+Protect credentials:
+
+```bash
+sudo chown root:root /etc/wazuh-enrich/wazuh-enrich.env
+sudo chmod 600 /etc/wazuh-enrich/wazuh-enrich.env
 ```
 
 For labs only:
@@ -94,7 +144,7 @@ Default PoC build source is Exploit-DB metadata:
 POC_BUILD:
   enabled: false
   interval_seconds: 86400
-  output_file: feeds/cve_poc.csv
+  output_file: /var/lib/wazuh-enrich/feeds/cve_poc.csv
   exploitdb_csv: https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv
   # Optional extra sources:
   # nuclei_templates: https://github.com/projectdiscovery/nuclei-templates
@@ -114,7 +164,7 @@ Manual build remains available:
 ```bash
 python3 tools/build_poc_feed.py \
   --exploitdb-csv https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv \
-  --output feeds/cve_poc.csv
+  --output /var/lib/wazuh-enrich/feeds/cve_poc.csv
 ```
 
 PoC fields written to enriched/summary docs:
@@ -128,30 +178,34 @@ poc_sources
 
 ## First Run
 
-Load env:
+For production paths, run the first checks as root:
 
 ```bash
 set -a
-. /etc/wazuh-enrich.env
+. /etc/wazuh-enrich/wazuh-enrich.env
 set +a
-```
-
-Sync feeds:
-
-```bash
-python3 vuln_enricher.py sync-feeds
+cd /opt/wazuh-enrich
+.venv/bin/python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-feeds
 ```
 
 Dry-run:
 
 ```bash
-python3 vuln_enricher.py --dry-run --log-format text enrich-all
+set -a
+. /etc/wazuh-enrich/wazuh-enrich.env
+set +a
+cd /opt/wazuh-enrich
+.venv/bin/python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml --dry-run --log-format text enrich-all
 ```
 
 Run real enrichment:
 
 ```bash
-python3 vuln_enricher.py enrich-all
+set -a
+. /etc/wazuh-enrich/wazuh-enrich.env
+set +a
+cd /opt/wazuh-enrich
+.venv/bin/python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all
 ```
 
 Check indices:
@@ -162,6 +216,16 @@ curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
 ```
 
 ## systemd
+
+This service intentionally runs as root. The unit does not set `User=` or `Group=`, so systemd uses root by default.
+
+Prepare root-owned runtime directories before enabling the service:
+
+```bash
+sudo chown -R root:root /etc/wazuh-enrich /var/lib/wazuh-enrich
+sudo chmod 700 /etc/wazuh-enrich
+sudo chmod 700 /var/lib/wazuh-enrich
+```
 
 Create service:
 
@@ -180,12 +244,10 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/wazuh-enrich
-EnvironmentFile=/etc/wazuh-enrich.env
-ExecStart=/opt/wazuh-enrich/.venv/bin/python3 /opt/wazuh-enrich/vuln_enricher.py daemon
+EnvironmentFile=/etc/wazuh-enrich/wazuh-enrich.env
+ExecStart=/opt/wazuh-enrich/.venv/bin/python3 /opt/wazuh-enrich/vuln_enricher.py --config /etc/wazuh-enrich/config.yaml daemon
 Restart=always
 RestartSec=10
-User=wazuh-enrich
-Group=wazuh-enrich
 
 [Install]
 WantedBy=multi-user.target
@@ -202,20 +264,20 @@ sudo journalctl -u wazuh-enrich -f
 ## CLI
 
 ```bash
-python3 vuln_enricher.py sync-feeds
-python3 vuln_enricher.py build-poc-feed
-python3 vuln_enricher.py sync-poc
-python3 vuln_enricher.py enrich-all
-python3 vuln_enricher.py enrich-agent --agent-id 001
-python3 vuln_enricher.py detect-new-agents
-python3 vuln_enricher.py run-once
-python3 vuln_enricher.py daemon
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-feeds
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-poc-feed
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-poc
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-agent --agent-id 001
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml detect-new-agents
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml run-once
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml daemon
 ```
 
 Logs default to JSON. For terminal reading:
 
 ```bash
-python3 vuln_enricher.py --log-format text --dry-run run-once
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml --log-format text --dry-run run-once
 ```
 
 ## Priority
@@ -267,16 +329,12 @@ Create these data views:
 ```text
 wazuh-vuln-enriched-*       time field: detected_at
 wazuh-vuln-cve-summary-*    time field: updated_at
-wazuh-vuln-host-summary-*   time field: updated_at
 ```
 
-Important panels:
+The imported dashboard intentionally contains only two panels:
 
 - Public PoC CVEs Impacting This System.
 - Hosts Affected by Public PoC CVEs.
-- CVE Impact Overview.
-- Host Impact Overview.
-- P0/KEV/Public PoC metrics.
 
 Dashboard import is optional and separate from enrichment:
 
@@ -284,15 +342,23 @@ Dashboard import is optional and separate from enrichment:
 python3 dashboard/manage_saved_objects.py reimport --no-verify-ssl
 ```
 
+The first panel reads `wazuh-vuln-cve-summary-*` with:
+
+```text
+public_poc:true and affected_hosts_count > 0
+```
+
+This shows only public-PoC CVEs that Wazuh has actually detected on your agents, not a global internet PoC list.
+
 ## Quick Checks
 
-Public PoC CVEs:
+Public PoC CVEs impacting this system:
 
 ```bash
 curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
   "$WAZUH_INDEXER_URL/wazuh-vuln-cve-summary-*/_search" \
   -H 'Content-Type: application/json' \
-  -d '{"size":25,"query":{"term":{"public_poc":true}},"sort":[{"risk_score":"desc"}]}'
+  -d '{"size":25,"query":{"bool":{"filter":[{"term":{"public_poc":true}},{"range":{"affected_hosts_count":{"gte":1}}}]}},"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
 ```
 
 Hosts affected by public PoC CVEs:
@@ -308,7 +374,8 @@ curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
 
 - No findings: check `wazuh-states-vulnerabilities-*`.
 - CISA blocked: set `CISA_KEV_FILE` to a local JSON mirror.
-- PoC not visible: enable `POC_BUILD`, run `build-poc-feed`, then `enrich-all`.
+- PoC not visible: enable `POC_BUILD`, run `python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-poc-feed`, then `python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all`.
+- Agent IP is `0.0.0.0`: rerun `enrich-all`; the enricher skips placeholder IPs and falls back through `agent.host.ip`, `host.ip`, and `related.ip`. If it is still empty, the Wazuh vulnerability document does not contain a real IP.
 - Dashboard slow: use summary indices, not raw Wazuh state indices.
 
 ## Tests

@@ -44,34 +44,70 @@ Dashboard nên đọc 3 index này, không đọc trực tiếp `wazuh-states-vu
 
 ## Cài Đặt
 
+Cài package cần thiết và clone project vào `/opt/wazuh-enrich`:
+
 ```bash
-sudo mkdir -p /opt/wazuh-enrich
+sudo apt-get update
+sudo apt-get install -y git python3 python3-venv python3-pip
+
+cd /opt
+sudo git clone https://github.com/nguyenhuukhoi/wazuh-enrich.git
 sudo chown -R "$USER:$USER" /opt/wazuh-enrich
 cd /opt/wazuh-enrich
 
-python3.10 -m venv .venv
-. .venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
 pip install -r requirements.txt
+deactivate
+
+sudo chown -R root:root /opt/wazuh-enrich
 ```
 
-Nếu bạn chạy từ repo hiện tại:
+Nếu thư mục đã tồn tại, update code:
 
 ```bash
 cd /opt/wazuh-enrich
+sudo chown -R "$USER:$USER" /opt/wazuh-enrich
 git pull
+source .venv/bin/activate
+pip install -U pip
+pip install -r requirements.txt
+deactivate
+sudo chown -R root:root /opt/wazuh-enrich
 ```
 
 ## Cấu Hình
 
 Credential để trong environment file, không hardcode vào code.
 
-Tạo file:
+Layout production nên dùng:
 
 ```bash
-sudo nano /etc/wazuh-enrich.env
+sudo mkdir -p /etc/wazuh-enrich /var/lib/wazuh-enrich/cache /var/lib/wazuh-enrich/feeds
+sudo cp config.yaml /etc/wazuh-enrich/config.yaml
+sudo chown -R root:root /etc/wazuh-enrich /var/lib/wazuh-enrich
+sudo chmod 700 /etc/wazuh-enrich
+sudo chmod 600 /etc/wazuh-enrich/config.yaml
 ```
 
-Ví dụ:
+Config mặc định đã dùng các runtime path production này:
+
+```yaml
+CACHE_DIR: /var/lib/wazuh-enrich/cache
+STATE_FILE: /var/lib/wazuh-enrich/state.json
+
+POC_BUILD:
+  output_file: /var/lib/wazuh-enrich/feeds/cve_poc.csv
+```
+
+Tạo environment file:
+
+```bash
+sudo nano /etc/wazuh-enrich/wazuh-enrich.env
+```
+
+Ví dụ `/etc/wazuh-enrich/wazuh-enrich.env`:
 
 ```bash
 WAZUH_INDEXER_URL=https://127.0.0.1:9200
@@ -82,7 +118,14 @@ TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 ```
 
-Nếu lab muốn bỏ SSL verify với Wazuh Indexer, sửa `config.yaml`:
+Khóa quyền file credential:
+
+```bash
+sudo chown root:root /etc/wazuh-enrich/wazuh-enrich.env
+sudo chmod 600 /etc/wazuh-enrich/wazuh-enrich.env
+```
+
+Nếu lab muốn bỏ SSL verify với Wazuh Indexer, sửa `/etc/wazuh-enrich/config.yaml`:
 
 ```yaml
 VERIFY_SSL: false
@@ -103,7 +146,7 @@ Mặc định config dùng Exploit-DB metadata:
 POC_BUILD:
   enabled: false
   interval_seconds: 86400
-  output_file: feeds/cve_poc.csv
+  output_file: /var/lib/wazuh-enrich/feeds/cve_poc.csv
   exploitdb_csv: https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv
   # Optional extra sources:
   # nuclei_templates: https://github.com/projectdiscovery/nuclei-templates
@@ -121,7 +164,7 @@ POC_BUILD:
 Nếu muốn dùng file local tự quản lý:
 
 ```bash
-export POC_FEED_FILE=/opt/wazuh-enrich/feeds/cve_poc.csv
+export POC_FEED_FILE=/var/lib/wazuh-enrich/feeds/cve_poc.csv
 ```
 
 Format CSV:
@@ -136,35 +179,48 @@ Tool build thủ công vẫn có sẵn:
 ```bash
 python3 tools/build_poc_feed.py \
   --exploitdb-csv https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv \
-  --output feeds/cve_poc.csv
+  --output /var/lib/wazuh-enrich/feeds/cve_poc.csv
 ```
 
 ## Chạy Lần Đầu
 
-Load env:
+Với layout production chạy bằng root, chạy kiểm tra như sau:
 
 ```bash
 set -a
-. /etc/wazuh-enrich.env
+. /etc/wazuh-enrich/wazuh-enrich.env
 set +a
-```
-
-Sync feed:
-
-```bash
-python3 vuln_enricher.py sync-feeds
+cd /opt/wazuh-enrich
+.venv/bin/python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-feeds
 ```
 
 Dry-run để kiểm tra:
 
 ```bash
-python3 vuln_enricher.py --dry-run --log-format text enrich-all
+set -a
+. /etc/wazuh-enrich/wazuh-enrich.env
+set +a
+cd /opt/wazuh-enrich
+.venv/bin/python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml --dry-run --log-format text enrich-all
 ```
 
 Nếu ổn, enrich thật:
 
 ```bash
-python3 vuln_enricher.py enrich-all
+set -a
+. /etc/wazuh-enrich/wazuh-enrich.env
+set +a
+cd /opt/wazuh-enrich
+.venv/bin/python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all
+```
+
+Nếu muốn chạy thủ công ở shell hiện tại, nhớ load env và truyền config:
+
+```bash
+set -a
+. /etc/wazuh-enrich/wazuh-enrich.env
+set +a
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all
 ```
 
 Kiểm tra index:
@@ -176,11 +232,14 @@ curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
 
 ## Chạy Production Bằng systemd
 
-Tạo user riêng nếu muốn:
+Service này chủ động chạy bằng root. Unit không set `User=` hoặc `Group=`, nên systemd mặc định dùng root.
+
+Đảm bảo runtime directories thuộc root trước khi bật service:
 
 ```bash
-sudo useradd --system --home /opt/wazuh-enrich --shell /usr/sbin/nologin wazuh-enrich || true
-sudo chown -R wazuh-enrich:wazuh-enrich /opt/wazuh-enrich
+sudo chown -R root:root /etc/wazuh-enrich /var/lib/wazuh-enrich
+sudo chmod 700 /etc/wazuh-enrich
+sudo chmod 700 /var/lib/wazuh-enrich
 ```
 
 Tạo service:
@@ -200,12 +259,10 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/wazuh-enrich
-EnvironmentFile=/etc/wazuh-enrich.env
-ExecStart=/opt/wazuh-enrich/.venv/bin/python3 /opt/wazuh-enrich/vuln_enricher.py daemon
+EnvironmentFile=/etc/wazuh-enrich/wazuh-enrich.env
+ExecStart=/opt/wazuh-enrich/.venv/bin/python3 /opt/wazuh-enrich/vuln_enricher.py --config /etc/wazuh-enrich/config.yaml daemon
 Restart=always
 RestartSec=10
-User=wazuh-enrich
-Group=wazuh-enrich
 
 [Install]
 WantedBy=multi-user.target
@@ -228,20 +285,20 @@ sudo journalctl -u wazuh-enrich -f
 ## CLI Chính
 
 ```bash
-python3 vuln_enricher.py sync-feeds
-python3 vuln_enricher.py build-poc-feed
-python3 vuln_enricher.py sync-poc
-python3 vuln_enricher.py enrich-all
-python3 vuln_enricher.py enrich-agent --agent-id 001
-python3 vuln_enricher.py detect-new-agents
-python3 vuln_enricher.py run-once
-python3 vuln_enricher.py daemon
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-feeds
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-poc-feed
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-poc
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-agent --agent-id 001
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml detect-new-agents
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml run-once
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml daemon
 ```
 
 Log mặc định là JSON. Khi đọc terminal:
 
 ```bash
-python3 vuln_enricher.py --log-format text --dry-run run-once
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml --log-format text --dry-run run-once
 ```
 
 ## Priority
@@ -304,17 +361,12 @@ Data views cần có:
 ```text
 wazuh-vuln-enriched-*       time field: detected_at
 wazuh-vuln-cve-summary-*    time field: updated_at
-wazuh-vuln-host-summary-*   time field: updated_at
 ```
 
-Panel quan trọng nên có:
+Dashboard import chủ động chỉ giữ 2 panel:
 
 - Public PoC CVEs Impacting This System.
 - Hosts Affected by Public PoC CVEs.
-- CVE Impact Overview.
-- Host Impact Overview.
-- P0/KEV/Public PoC metrics.
-- CVE count by priority/year.
 
 Nếu dùng import:
 
@@ -323,6 +375,14 @@ python3 dashboard/manage_saved_objects.py reimport --no-verify-ssl
 ```
 
 Import dashboard không nằm trong flow enrich/daemon. Dashboard chỉ đọc index đã được service cập nhật.
+
+Panel đầu tiên lấy từ `wazuh-vuln-cve-summary-*` với điều kiện:
+
+```text
+public_poc:true and affected_hosts_count > 0
+```
+
+Như vậy dashboard chỉ hiện CVE có PoC công khai và đang thật sự ảnh hưởng tới host/package trong hệ thống, không hiện danh sách PoC global ngoài internet.
 
 ## Query Kiểm Tra Nhanh
 
@@ -335,13 +395,13 @@ curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
   -d '{"size":10,"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
 ```
 
-CVE có public PoC:
+CVE có public PoC và đang impact hệ thống:
 
 ```bash
 curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
   "$WAZUH_INDEXER_URL/wazuh-vuln-cve-summary-*/_search" \
   -H 'Content-Type: application/json' \
-  -d '{"size":25,"query":{"term":{"public_poc":true}},"sort":[{"risk_score":"desc"}]}'
+  -d '{"size":25,"query":{"bool":{"filter":[{"term":{"public_poc":true}},{"range":{"affected_hosts_count":{"gte":1}}}]}},"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
 ```
 
 Host bị ảnh hưởng bởi CVE có public PoC:
@@ -368,9 +428,15 @@ CISA bị chặn:
 PoC không hiện:
 
 - Bật `POC_BUILD.enabled: true` hoặc set `POC_FEED_FILE`.
-- Chạy `python3 vuln_enricher.py build-poc-feed`.
-- Chạy `python3 vuln_enricher.py enrich-all`.
+- Chạy `python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-poc-feed`.
+- Chạy `python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all`.
 - Kiểm tra field `public_poc:true` trong `wazuh-vuln-cve-summary-*`.
+
+Agent IP hiện `0.0.0.0`:
+
+- Chạy lại `enrich-all`.
+- Enricher sẽ bỏ qua IP placeholder và fallback theo thứ tự `agent.host.ip`, `host.ip`, `related.ip`.
+- Nếu vẫn trống, raw Wazuh vulnerability document không có IP thật.
 
 Dashboard chậm:
 

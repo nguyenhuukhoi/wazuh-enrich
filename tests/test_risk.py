@@ -78,3 +78,17 @@ def test_normalize_finding_adds_public_poc_fields():
     assert doc["poc_count"] == 1
     assert doc["poc_references"] == ["https://example.com/poc"]
     assert "public PoC available" in doc["reason"]
+
+
+def test_normalize_finding_skips_unspecified_agent_ip_for_host_ip_fallback():
+    source = {
+        "agent": {"id": "002", "name": "ubuntu-2", "ip": "0.0.0.0"},
+        "host": {"ip": ["10.10.10.25"], "os": {"name": "Ubuntu"}},
+        "vulnerability": {"id": "CVE-2026-0002", "score": {"base": 5.0}},
+        "package": {"name": "kernel", "version": "1"},
+    }
+
+    doc = normalize_finding(source, kev_cves=set(), epss_records={})
+
+    assert doc is not None
+    assert doc["agent_ip"] == "10.10.10.25"

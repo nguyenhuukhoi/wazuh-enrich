@@ -1,4 +1,5 @@
 import logging
+import ipaddress
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -23,6 +24,24 @@ def first_path(data: dict[str, Any], paths: list[str], default: Any = None) -> A
         value = get_path(data, path)
         if value not in (None, ""):
             return value
+    return default
+
+
+def first_valid_ip(data: dict[str, Any], paths: list[str], default: str = "") -> str:
+    for path in paths:
+        value = get_path(data, path)
+        values = value if isinstance(value, list) else [value]
+        for item in values:
+            if item in (None, ""):
+                continue
+            text = str(item).strip()
+            try:
+                ip = ipaddress.ip_address(text)
+            except ValueError:
+                continue
+            if ip.is_unspecified:
+                continue
+            return text
     return default
 
 
@@ -83,7 +102,7 @@ def normalize_finding(
         "cve_year": cve_year(cve_id),
         "agent_id": str(first_path(source, ["agent.id"], "")),
         "agent_name": first_path(source, ["agent.name"], ""),
-        "agent_ip": first_path(source, ["agent.ip", "agent.host.ip"], ""),
+        "agent_ip": first_valid_ip(source, ["agent.ip", "agent.host.ip", "host.ip", "related.ip"], ""),
         "os_name": first_path(source, ["host.os.name", "agent.host.os.name", "host.os.full"], ""),
         "os_version": first_path(source, ["host.os.version", "agent.host.os.version"], ""),
         "package_name": first_path(source, ["package.name"], ""),

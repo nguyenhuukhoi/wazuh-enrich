@@ -7,6 +7,7 @@ from typing import Any
 ENRICHED = "wazuh-vuln-enriched-pattern"
 CVE_SUMMARY = "wazuh-vuln-cve-summary-pattern"
 HOST_SUMMARY = "wazuh-vuln-host-summary-pattern"
+PUBLIC_POC_IMPACT_QUERY = "public_poc:true and affected_hosts_count > 0"
 
 
 def dumps(value: Any) -> str:
@@ -174,7 +175,7 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
                 "ignoreTimeout": False,
             },
             "parent": "",
-            "query": "public_poc:true",
+            "query": PUBLIC_POC_IMPACT_QUERY,
         },
         {
             "id": "priority",
@@ -297,39 +298,13 @@ def dashboard_object() -> dict[str, Any]:
             }
         )
 
-    add("vis-impact-controls", "visualization", 0, 0, 48, 8)
-    add("metric-total-findings", "visualization", 0, 8, 8, 6)
-    add("metric-unique-cves", "visualization", 8, 8, 8, 6)
-    add("metric-p0-cves", "visualization", 16, 8, 8, 6)
-    add("metric-kev-cves", "visualization", 24, 8, 8, 6)
-    add("metric-public-poc-cves", "visualization", 32, 8, 8, 6)
-    add("metric-vulnerable-agents", "visualization", 40, 8, 8, 6)
-    add("search-public-poc", "search", 0, 14, 48, 12)
-    add("search-public-poc-hosts", "search", 0, 26, 48, 16)
-    add("vis-cves-by-priority", "visualization", 0, 42, 16, 10)
-    add("vis-cves-by-year", "visualization", 16, 42, 16, 10)
-    add("vis-top-packages", "visualization", 32, 42, 16, 10)
-    add("search-cve-impact", "search", 0, 52, 48, 16)
-    add("search-host-impact", "search", 0, 68, 48, 14)
-    add("search-kev-cves", "search", 0, 82, 48, 12)
+    add("search-public-poc", "search", 0, 0, 24, 18)
+    add("search-public-poc-hosts", "search", 24, 0, 24, 18)
 
     references = []
     panel_ids = [
-        ("vis-impact-controls", "visualization"),
-        ("metric-total-findings", "visualization"),
-        ("metric-unique-cves", "visualization"),
-        ("metric-p0-cves", "visualization"),
-        ("metric-kev-cves", "visualization"),
-        ("metric-public-poc-cves", "visualization"),
-        ("metric-vulnerable-agents", "visualization"),
-        ("vis-cves-by-priority", "visualization"),
-        ("vis-cves-by-year", "visualization"),
-        ("vis-top-packages", "visualization"),
         ("search-public-poc", "search"),
         ("search-public-poc-hosts", "search"),
-        ("search-cve-impact", "search"),
-        ("search-host-impact", "search"),
-        ("search-kev-cves", "search"),
     ]
     for index, (panel_id, panel_type) in enumerate(panel_ids, start=1):
         references.append({"name": f"panel_{index}", "type": panel_type, "id": panel_id})
@@ -339,7 +314,7 @@ def dashboard_object() -> dict[str, Any]:
         "id": "wazuh-vuln-enrichment-overview",
         "attributes": {
             "title": "Wazuh Vulnerability Enrichment Overview",
-            "description": "KEV, EPSS, PoC, CVE impact, and host impact overview.",
+            "description": "Public PoC CVEs currently impacting this system and the affected hosts.",
             "panelsJSON": dumps(panels),
             "optionsJSON": dumps({"useMargins": True, "hidePanelTitles": False}),
             "version": 1,
@@ -351,36 +326,6 @@ def dashboard_object() -> dict[str, Any]:
 
 
 def build_objects() -> list[dict[str, Any]]:
-    cve_columns = [
-        "cve_id",
-        "priority",
-        "kev",
-        "public_poc",
-        "poc_count",
-        "epss_score",
-        "epss_percentile",
-        "cvss_score",
-        "affected_hosts_count",
-        "affected_packages",
-        "first_detected_at",
-        "last_detected_at",
-        "reason",
-    ]
-    host_columns = [
-        "agent_id",
-        "agent_name",
-        "agent_ip",
-        "os_name",
-        "os_version",
-        "total_cves",
-        "p0_count",
-        "p1_count",
-        "kev_count",
-        "highest_epss",
-        "highest_cvss",
-        "top_packages",
-        "last_scan_time",
-    ]
     poc_columns = [
         "cve_id",
         "priority",
@@ -416,29 +361,13 @@ def build_objects() -> list[dict[str, Any]]:
     return [
         index_pattern(ENRICHED, "wazuh-vuln-enriched-*", "detected_at"),
         index_pattern(CVE_SUMMARY, "wazuh-vuln-cve-summary-*", "updated_at"),
-        index_pattern(HOST_SUMMARY, "wazuh-vuln-host-summary-*", "updated_at"),
-        controls_vis("vis-impact-controls", "Impact Filters", CVE_SUMMARY),
-        metric_vis("metric-total-findings", "Total Active Findings", ENRICHED),
-        metric_vis("metric-unique-cves", "Unique CVEs", CVE_SUMMARY),
-        metric_vis("metric-p0-cves", "P0 CVEs", CVE_SUMMARY, filters=[phrase_filter("priority", "P0", CVE_SUMMARY)]),
-        metric_vis("metric-kev-cves", "KEV CVEs", CVE_SUMMARY, filters=[phrase_filter("kev", True, CVE_SUMMARY)]),
-        metric_vis(
-            "metric-public-poc-cves",
-            "Public PoC CVEs",
-            CVE_SUMMARY,
-            filters=[phrase_filter("public_poc", True, CVE_SUMMARY)],
-        ),
-        metric_vis("metric-vulnerable-agents", "Vulnerable Agents", HOST_SUMMARY),
-        terms_bar_vis("vis-cves-by-priority", "CVE Count by Priority", CVE_SUMMARY, "priority"),
-        terms_bar_vis("vis-cves-by-year", "CVE Count by Year", CVE_SUMMARY, "cve_year"),
-        terms_bar_vis("vis-top-packages", "Top Affected Packages", CVE_SUMMARY, "affected_packages"),
         saved_search(
             "search-public-poc",
             "Public PoC CVEs Impacting This System",
             CVE_SUMMARY,
             poc_columns,
             "risk_score",
-            filters=[phrase_filter("public_poc", True, CVE_SUMMARY)],
+            filters=[phrase_filter("public_poc", True, CVE_SUMMARY), range_filter("affected_hosts_count", 1, CVE_SUMMARY)],
         ),
         saved_search(
             "search-public-poc-hosts",
@@ -448,9 +377,6 @@ def build_objects() -> list[dict[str, Any]]:
             "risk_score",
             filters=[phrase_filter("public_poc", True, ENRICHED)],
         ),
-        saved_search("search-cve-impact", "CVE Impact Overview", CVE_SUMMARY, cve_columns, "risk_score"),
-        saved_search("search-host-impact", "Host Impact Overview", HOST_SUMMARY, host_columns, "p0_count"),
-        saved_search("search-kev-cves", "KEV CVEs", CVE_SUMMARY, cve_columns, "risk_score"),
         dashboard_object(),
     ]
 

@@ -72,7 +72,14 @@
     "index": "wazuh-vuln-cve-summary-*",
     "body": {
       "size": 25,
-      "query": { "term": { "public_poc": true } },
+      "query": {
+        "bool": {
+          "filter": [
+            { "term": { "public_poc": true } },
+            { "range": { "affected_hosts_count": { "gte": 1 } } }
+          ]
+        }
+      },
       "sort": [
         { "risk_score": "desc" },
         { "affected_hosts_count": "desc" }
