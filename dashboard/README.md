@@ -8,6 +8,87 @@ This dashboard is designed for OpenSearch Dashboards and Wazuh Dashboard. It rea
 
 Do not build panels directly on `wazuh-states-vulnerabilities-*` for daily operations. The enricher already performs batch reads from the raw Wazuh vulnerability inventory and writes compact summary indices.
 
+## Quick Import
+
+Import the ready-made saved objects file:
+
+```text
+dashboard/wazuh-vuln-enrichment.ndjson
+```
+
+Steps:
+
+1. Open Wazuh Dashboard or OpenSearch Dashboards.
+2. Go to `Stack Management` or `Dashboards Management`.
+3. Open `Saved Objects`.
+4. Click `Import`.
+5. Select `dashboard/wazuh-vuln-enrichment.ndjson`.
+6. Enable overwrite if you are re-importing an updated version.
+7. Open dashboard `Wazuh Vulnerability Enrichment Overview`.
+
+The import creates:
+
+- Data views/index patterns for enriched, CVE summary, and host summary indices.
+- Dropdown controls for public PoC CVE, priority, KEV, and affected host.
+- Metric cards for active findings, unique CVEs, P0, KEV, public PoC, and vulnerable agents.
+- Public PoC CVEs impacting this system.
+- Hosts affected by public PoC CVEs, including host, package, installed version, EPSS, CVSS, and recommended action.
+- CVE and host impact saved searches.
+- KEV CVE table.
+- Priority/year/package charts.
+
+After importing, refresh the field list for each data view if a table shows unknown fields:
+
+- `wazuh-vuln-enriched-*`
+- `wazuh-vuln-cve-summary-*`
+- `wazuh-vuln-host-summary-*`
+
+You can rebuild the NDJSON after editing dashboard definitions:
+
+```bash
+python3 dashboard/build_saved_objects.py
+```
+
+## Delete Or Reimport
+
+You can manage imported saved objects with:
+
+```bash
+export WAZUH_DASHBOARD_URL="https://127.0.0.1:443"
+export WAZUH_INDEXER_USERNAME="admin"
+export WAZUH_INDEXER_PASSWORD="your-password"
+```
+
+List matching saved objects:
+
+```bash
+python3 dashboard/manage_saved_objects.py list --no-verify-ssl
+```
+
+Preview deletion:
+
+```bash
+python3 dashboard/manage_saved_objects.py delete --dry-run --no-verify-ssl
+```
+
+Delete the imported dashboard, panel objects, and related data views:
+
+```bash
+python3 dashboard/manage_saved_objects.py delete --no-verify-ssl
+```
+
+Delete and import again:
+
+```bash
+python3 dashboard/manage_saved_objects.py reimport --no-verify-ssl
+```
+
+If you imported into a non-default tenant, add:
+
+```bash
+--tenant global
+```
+
 ## Index Patterns
 
 Create these data views:
@@ -20,20 +101,22 @@ Create these data views:
 
 ## Required Controls
 
-Create filter controls for:
+The import includes an `Impact Filters` control panel. It contains:
 
-- `cve_year`: 2024, 2025, 2026
-- `cve_id`: search box
-- `agent_name`: search box
-- `agent_id`: search box
-- `os_name`: dropdown
-- `priority`: dropdown
-- `kev`: yes/no
-- `epss_score`: range slider
-- `cvss_score`: range slider
-- `public_poc`: yes/no
-- `package_name` or `affected_packages`: search box
-- `detected_at`, `first_detected_at`, `last_detected_at`: time picker
+- `Public PoC CVE impacting system`: dropdown on `cve_id`, filtered by `public_poc:true`.
+- `Priority`: dropdown on `priority`.
+- `KEV`: dropdown on `kev`.
+- `Affected host`: dropdown on `agent_name`.
+
+Optional extra controls to add manually:
+
+- `cve_year`: 2024, 2025, 2026.
+- `agent_id`: search box.
+- `os_name`: dropdown.
+- `epss_score`: range slider.
+- `cvss_score`: range slider.
+- `package_name` or `affected_packages`: search box.
+- `detected_at`, `first_detected_at`, `last_detected_at`: time picker.
 
 ## Overview Cards
 
@@ -73,6 +156,60 @@ Columns:
 - `reason`
 
 Sort by `risk_score` descending, then `affected_hosts_count` descending.
+
+### Public PoC CVEs Impacting This System
+
+Data view: `wazuh-vuln-cve-summary-*`
+
+Filter:
+
+- `public_poc:true`
+
+Columns:
+
+- `cve_id`
+- `priority`
+- `kev`
+- `public_poc`
+- `poc_count`
+- `epss_score`
+- `cvss_score`
+- `affected_hosts_count`
+- `affected_packages`
+- `poc_references`
+- `reason`
+
+This table answers: which public-PoC CVEs currently affect the system?
+
+### Hosts Affected By Public PoC CVEs
+
+Data view: `wazuh-vuln-enriched-*`
+
+Filter:
+
+- `public_poc:true`
+
+Columns:
+
+- `cve_id`
+- `priority`
+- `kev`
+- `public_poc`
+- `poc_count`
+- `agent_id`
+- `agent_name`
+- `agent_ip`
+- `os_name`
+- `os_version`
+- `package_name`
+- `package_version`
+- `epss_score`
+- `cvss_score`
+- `detected_at`
+- `poc_references`
+- `recommended_action`
+
+This table answers: which hosts and packages are affected by CVEs that already have public PoC metadata?
 
 ### Host Impact Overview
 

@@ -436,6 +436,30 @@ Top CVEs:
 
 See [dashboard/README.md](dashboard/README.md).
 
+Fast path: import the saved objects file:
+
+```text
+dashboard/wazuh-vuln-enrichment.ndjson
+```
+
+In Wazuh/OpenSearch Dashboard, go to `Saved Objects` -> `Import`, select the file, then open `Wazuh Vulnerability Enrichment Overview`.
+
+The imported dashboard puts PoC impact near the top:
+
+- `Impact Filters`, including a dropdown for public PoC CVEs impacting the system
+- `Public PoC CVEs Impacting This System`
+- `Hosts Affected by Public PoC CVEs`
+
+Those tables show which CVEs with public PoC metadata affect your environment and which agents/packages are affected.
+
+To delete or reimport later:
+
+```bash
+python3 dashboard/manage_saved_objects.py list --no-verify-ssl
+python3 dashboard/manage_saved_objects.py delete --no-verify-ssl
+python3 dashboard/manage_saved_objects.py reimport --no-verify-ssl
+```
+
 Create 3 data views/index patterns:
 
 | Data view | Time field |

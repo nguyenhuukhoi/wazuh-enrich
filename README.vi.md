@@ -435,6 +435,30 @@ Top CVEs:
 
 Xem hướng dẫn chi tiết tại [dashboard/README.md](dashboard/README.md).
 
+Cách nhanh: import saved objects file:
+
+```text
+dashboard/wazuh-vuln-enrichment.ndjson
+```
+
+Trong Wazuh/OpenSearch Dashboard, vào `Saved Objects` -> `Import`, chọn file này, rồi mở dashboard `Wazuh Vulnerability Enrichment Overview`.
+
+Dashboard import sẽ đặt PoC impact ở phần trên:
+
+- `Impact Filters`, có dropdown chọn public PoC CVE đang impact hệ thống
+- `Public PoC CVEs Impacting This System`
+- `Hosts Affected by Public PoC CVEs`
+
+Hai bảng này cho biết CVE nào đã có public PoC đang ảnh hưởng môi trường của bạn và host/package nào bị ảnh hưởng.
+
+Nếu sau này muốn xóa hoặc import lại:
+
+```bash
+python3 dashboard/manage_saved_objects.py list --no-verify-ssl
+python3 dashboard/manage_saved_objects.py delete --no-verify-ssl
+python3 dashboard/manage_saved_objects.py reimport --no-verify-ssl
+```
+
 Tạo 3 data views/index patterns:
 
 | Data view | Time field |
