@@ -13,6 +13,7 @@ DEFAULT_STATE: dict[str, Any] = {
     "last_kev_status_by_cve": {},
     "last_epss_threshold_by_cve": {},
     "alert_dedup_keys": {},
+    "feed_fingerprints": {},
 }
 
 

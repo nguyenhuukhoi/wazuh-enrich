@@ -51,6 +51,7 @@ class Settings:
     telegram_chat_id: str
     alert_thresholds: dict[str, Any]
     schedule: dict[str, int]
+    poc_build: dict[str, Any]
 
     @property
     def ssl_verify_value(self) -> bool | str:
@@ -108,9 +109,29 @@ def load_config(path: str = "config.yaml") -> Settings:
         ),
         cisa_kev_file=Path(cfg["CISA_KEV_FILE"]) if cfg.get("CISA_KEV_FILE") else None,
         epss_url=cfg.get("EPSS_URL", "https://epss.empiricalsecurity.com/epss_scores-current.csv.gz"),
-        poc_feed_file=Path(cfg["POC_FEED_FILE"]) if cfg.get("POC_FEED_FILE") else None,
+        poc_feed_file=Path(cfg["POC_FEED_FILE"]) if cfg.get("POC_FEED_FILE") else _poc_build_output(cfg),
         telegram_bot_token=cfg.get("TELEGRAM_BOT_TOKEN", ""),
         telegram_chat_id=cfg.get("TELEGRAM_CHAT_ID", ""),
         alert_thresholds=cfg["ALERT_THRESHOLDS"],
         schedule={key: int(val) for key, val in cfg.get("SCHEDULE", {}).items()},
+        poc_build=_normalize_poc_build(cfg.get("POC_BUILD", {})),
     )
+
+
+def _normalize_poc_build(raw: dict[str, Any]) -> dict[str, Any]:
+    cfg = dict(raw or {})
+    cfg["enabled"] = _as_bool(cfg.get("enabled", False))
+    cfg["interval_seconds"] = int(cfg.get("interval_seconds", 86400) or 86400)
+    if cfg.get("output_file"):
+        cfg["output_file"] = str(cfg["output_file"])
+    for key in ["exploitdb_csv", "nuclei_templates", "poc_in_github", "trickest_cve"]:
+        if cfg.get(key) in ("", None):
+            cfg[key] = None
+    return cfg
+
+
+def _poc_build_output(cfg: dict[str, Any]) -> Path | None:
+    poc_build = _normalize_poc_build(cfg.get("POC_BUILD", {}))
+    if poc_build.get("enabled") and poc_build.get("output_file"):
+        return Path(str(poc_build["output_file"]))
+    return None

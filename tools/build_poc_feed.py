@@ -4,9 +4,12 @@ import csv
 import json
 import re
 import sys
+import tempfile
+import zipfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Iterator
 from urllib.request import Request, urlopen
 
 import yaml
@@ -14,6 +17,7 @@ import yaml
 
 CVE_RE = re.compile(r"CVE-\d{4}-\d{4,}", re.IGNORECASE)
 URL_RE = re.compile(r"https?://[^\s)>\]\"']+", re.IGNORECASE)
+GITHUB_REPO_RE = re.compile(r"^https://github\.com/([^/]+)/([^/#?]+?)(?:\.git)?/?$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -41,6 +45,56 @@ def read_text(path_or_url: str) -> str:
         with urlopen(request, timeout=60) as response:
             return response.read().decode("utf-8", errors="replace")
     return Path(path_or_url).read_text(encoding="utf-8", errors="replace")
+
+
+def read_bytes(url: str) -> bytes:
+    request = Request(
+        url,
+        headers={"User-Agent": "wazuh-enrich-poc-feed-builder/1.0"},
+    )
+    with urlopen(request, timeout=120) as response:
+        return response.read()
+
+
+def github_default_branch(owner: str, repo: str) -> str:
+    api_url = f"https://api.github.com/repos/{owner}/{repo}"
+    data = json.loads(read_text(api_url))
+    return str(data.get("default_branch") or "main")
+
+
+@contextmanager
+def source_directory(path_or_url: str) -> Iterator[Path]:
+    source = str(path_or_url)
+    if source.startswith(("http://", "https://")):
+        archive_url = source
+        match = GITHUB_REPO_RE.match(source)
+        if match:
+            owner, repo = match.groups()
+            branch = github_default_branch(owner, repo)
+            archive_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/{branch}.zip"
+        with tempfile.TemporaryDirectory(prefix="wazuh-poc-feed-") as tmpdir:
+            archive = Path(tmpdir) / "source.zip"
+            archive.write_bytes(read_bytes(archive_url))
+            extract_dir = Path(tmpdir) / "src"
+            extract_dir.mkdir()
+            with zipfile.ZipFile(archive) as zf:
+                zf.extractall(extract_dir)
+            children = [child for child in extract_dir.iterdir() if child.is_dir()]
+            yield children[0] if len(children) == 1 else extract_dir
+        return
+
+    path = Path(source)
+    if path.is_file() and path.suffix.lower() == ".zip":
+        with tempfile.TemporaryDirectory(prefix="wazuh-poc-feed-") as tmpdir:
+            extract_dir = Path(tmpdir) / "src"
+            extract_dir.mkdir()
+            with zipfile.ZipFile(path) as zf:
+                zf.extractall(extract_dir)
+            children = [child for child in extract_dir.iterdir() if child.is_dir()]
+            yield children[0] if len(children) == 1 else extract_dir
+        return
+
+    yield path
 
 
 def exploitdb_entries(csv_path_or_url: str) -> Iterable[PocEntry]:
@@ -138,6 +192,30 @@ def write_csv(entries: Iterable[PocEntry], output: Path) -> int:
     return len(unique)
 
 
+def build_poc_feed(
+    output: Path,
+    exploitdb_csv: str | None = None,
+    nuclei_templates: str | None = None,
+    poc_in_github: str | None = None,
+    trickest_cve: str | None = None,
+) -> int:
+    entries: list[PocEntry] = []
+    if exploitdb_csv:
+        entries.extend(exploitdb_entries(exploitdb_csv))
+    if nuclei_templates:
+        with source_directory(nuclei_templates) as source_dir:
+            entries.extend(nuclei_entries(source_dir))
+    if poc_in_github:
+        with source_directory(poc_in_github) as source_dir:
+            entries.extend(poc_in_github_entries(source_dir))
+    if trickest_cve:
+        with source_directory(trickest_cve) as source_dir:
+            entries.extend(trickest_entries(source_dir))
+    if not entries:
+        return 0
+    return write_csv(entries, output)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Build cve_poc.csv from trusted public metadata sources without downloading PoC code."
@@ -155,22 +233,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    entries: list[PocEntry] = []
-
-    if args.exploitdb_csv:
-        entries.extend(exploitdb_entries(args.exploitdb_csv))
-    if args.nuclei_templates:
-        entries.extend(nuclei_entries(Path(args.nuclei_templates)))
-    if args.poc_in_github:
-        entries.extend(poc_in_github_entries(Path(args.poc_in_github)))
-    if args.trickest_cve:
-        entries.extend(trickest_entries(Path(args.trickest_cve)))
-
-    if not entries:
+    count = build_poc_feed(
+        output=Path(args.output),
+        exploitdb_csv=args.exploitdb_csv,
+        nuclei_templates=args.nuclei_templates,
+        poc_in_github=args.poc_in_github,
+        trickest_cve=args.trickest_cve,
+    )
+    if count == 0:
         print("No PoC metadata entries found. Provide at least one source.", file=sys.stderr)
         return 2
 
-    count = write_csv(entries, Path(args.output))
     print(f"Wrote {count} PoC metadata rows to {args.output}")
     return 0
 

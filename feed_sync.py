@@ -1,5 +1,6 @@
 import csv
 import gzip
+import hashlib
 import io
 import json
 import logging
@@ -210,6 +211,13 @@ class FeedSync:
     def sync_all(self, force: bool = False) -> tuple[set[str], dict[str, EpssRecord], dict[str, PocRecord]]:
         return self.sync_kev(force=force), self.sync_epss(force=force), self.sync_poc()
 
+    def fingerprints(self) -> dict[str, str | None]:
+        return {
+            "kev": self._file_sha256(self.kev_cache),
+            "epss": self._file_sha256(self.epss_cache),
+            "poc": self._file_sha256(self.poc_cache),
+        }
+
     def _download(self, url: str) -> bytes:
         headers = {
             "Accept": "application/json,text/csv,application/gzip,*/*",
@@ -218,6 +226,16 @@ class FeedSync:
         response = requests.get(url, headers=headers, timeout=self.timeout)
         response.raise_for_status()
         return response.content
+
+    @staticmethod
+    def _file_sha256(path: Path) -> str | None:
+        if not path.exists():
+            return None
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     @staticmethod
     def _atomic_write(path: Path, payload: bytes) -> None:

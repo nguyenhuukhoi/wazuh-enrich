@@ -14,6 +14,7 @@ from feed_sync import FeedSync
 from risk import normalize_finding
 from state import StateStore
 from summary import build_cve_summary, build_host_summary, overview_metrics
+from tools.build_poc_feed import build_poc_feed
 from wazuh_client import WazuhIndexerClient
 
 
@@ -61,13 +62,8 @@ def load_local_or_sync_feeds(settings: Settings, force: bool = False) -> tuple[s
     return feed_sync.sync_all(force=force)
 
 
-def sync_feeds(settings: Settings, force: bool = False) -> None:
-    kev_cves, epss, poc = load_local_or_sync_feeds(settings, force=force)
-    LOG.info("feeds_ready kev_cves=%s epss_records=%s poc_records=%s", len(kev_cves), len(epss), len(poc))
-
-
-def sync_poc(settings: Settings) -> None:
-    feed_sync = FeedSync(
+def build_feed_sync(settings: Settings) -> FeedSync:
+    return FeedSync(
         cache_dir=settings.cache_dir,
         kev_url=settings.cisa_kev_url,
         epss_url=settings.epss_url,
@@ -75,8 +71,34 @@ def sync_poc(settings: Settings) -> None:
         kev_file=settings.cisa_kev_file,
         poc_file=settings.poc_feed_file,
     )
+
+
+def sync_feeds(settings: Settings, force: bool = False) -> None:
+    kev_cves, epss, poc = build_feed_sync(settings).sync_all(force=force)
+    LOG.info("feeds_ready kev_cves=%s epss_records=%s poc_records=%s", len(kev_cves), len(epss), len(poc))
+
+
+def sync_poc(settings: Settings) -> None:
+    feed_sync = build_feed_sync(settings)
     poc = feed_sync.sync_poc()
     LOG.info("poc_feed_ready poc_records=%s", len(poc))
+
+
+def build_poc_metadata(settings: Settings) -> int:
+    cfg = settings.poc_build
+    if not cfg.get("enabled"):
+        LOG.info("poc_build skipped=true reason=disabled")
+        return 0
+    output = Path(str(cfg.get("output_file") or settings.poc_feed_file or "feeds/cve_poc.csv"))
+    count = build_poc_feed(
+        output=output,
+        exploitdb_csv=cfg.get("exploitdb_csv"),
+        nuclei_templates=cfg.get("nuclei_templates"),
+        poc_in_github=cfg.get("poc_in_github"),
+        trickest_cve=cfg.get("trickest_cve"),
+    )
+    LOG.info("poc_build_done output=%s records=%s", output, count)
+    return count
 
 
 def enrich(
@@ -226,37 +248,57 @@ def run_once(settings: Settings, dry_run: bool = False) -> None:
 def daemon(settings: Settings, dry_run: bool = False) -> None:
     state = StateStore(settings.state_file)
     client = WazuhIndexerClient(settings)
+    feed_sync = build_feed_sync(settings)
     schedule = {
         "kev_sync_seconds": settings.schedule.get("kev_sync_seconds", 3600),
         "epss_sync_seconds": settings.schedule.get("epss_sync_seconds", 86400),
         "enrichment_seconds": settings.schedule.get("enrichment_seconds", 900),
+        "full_refresh_seconds": settings.schedule.get("full_refresh_seconds", 86400),
+        "poc_build_seconds": int(settings.poc_build.get("interval_seconds", 86400)),
         "detect_new_agents_seconds": settings.schedule.get("detect_new_agents_seconds", 300),
     }
     last_run = {key: 0.0 for key in schedule}
+    last_run["full_refresh_seconds"] = time.monotonic()
     LOG.info("daemon_started schedule=%s dry_run=%s", schedule, dry_run)
     while True:
         now = time.monotonic()
         try:
+            feeds_changed = False
             if now - last_run["kev_sync_seconds"] >= schedule["kev_sync_seconds"]:
-                FeedSync(
-                    settings.cache_dir,
-                    settings.cisa_kev_url,
-                    settings.epss_url,
-                    settings.request_timeout_seconds,
-                    kev_file=settings.cisa_kev_file,
-                    poc_file=settings.poc_feed_file,
-                ).sync_kev()
+                before = feed_sync.fingerprints()
+                feed_sync.sync_kev()
+                after = feed_sync.fingerprints()
+                feeds_changed = feeds_changed or before.get("kev") != after.get("kev")
                 last_run["kev_sync_seconds"] = now
             if now - last_run["epss_sync_seconds"] >= schedule["epss_sync_seconds"]:
-                FeedSync(
-                    settings.cache_dir,
-                    settings.cisa_kev_url,
-                    settings.epss_url,
-                    settings.request_timeout_seconds,
-                    kev_file=settings.cisa_kev_file,
-                    poc_file=settings.poc_feed_file,
-                ).sync_epss()
+                before = feed_sync.fingerprints()
+                feed_sync.sync_epss()
+                after = feed_sync.fingerprints()
+                feeds_changed = feeds_changed or before.get("epss") != after.get("epss")
                 last_run["epss_sync_seconds"] = now
+            if settings.poc_build.get("enabled") and now - last_run["poc_build_seconds"] >= schedule["poc_build_seconds"]:
+                before = feed_sync.fingerprints()
+                build_poc_metadata(settings)
+                feed_sync.sync_poc()
+                after = feed_sync.fingerprints()
+                feeds_changed = feeds_changed or before.get("poc") != after.get("poc")
+                last_run["poc_build_seconds"] = now
+            before = feed_sync.fingerprints()
+            feed_sync.sync_poc()
+            after = feed_sync.fingerprints()
+            feeds_changed = feeds_changed or before.get("poc") != after.get("poc")
+            if feeds_changed:
+                LOG.info("feed_change_detected full_refresh=true")
+                enrich(settings, client, state, full=True, dry_run=dry_run)
+                state.data["feed_fingerprints"] = after
+                last_run["full_refresh_seconds"] = now
+                last_run["enrichment_seconds"] = now
+            if now - last_run["full_refresh_seconds"] >= schedule["full_refresh_seconds"]:
+                LOG.info("scheduled_full_refresh_started")
+                enrich(settings, client, state, full=True, dry_run=dry_run)
+                state.data["feed_fingerprints"] = feed_sync.fingerprints()
+                last_run["full_refresh_seconds"] = now
+                last_run["enrichment_seconds"] = now
             if now - last_run["enrichment_seconds"] >= schedule["enrichment_seconds"]:
                 enrich(settings, client, state, full=False, dry_run=dry_run)
                 last_run["enrichment_seconds"] = now
@@ -284,6 +326,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("sync-feeds")
     sub.add_parser("sync-poc")
+    sub.add_parser("build-poc-feed")
     sub.add_parser("enrich-all")
     agent_parser = sub.add_parser("enrich-agent")
     agent_parser.add_argument("--agent-id", required=True)
@@ -305,6 +348,8 @@ def main(argv: list[str] | None = None) -> int:
             sync_feeds(settings, force=True)
         elif args.command == "sync-poc":
             sync_poc(settings)
+        elif args.command == "build-poc-feed":
+            build_poc_metadata(settings)
         elif args.command == "enrich-all":
             enrich(settings, client, state, full=True, dry_run=args.dry_run)
         elif args.command == "enrich-agent":

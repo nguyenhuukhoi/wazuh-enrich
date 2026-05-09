@@ -27,6 +27,22 @@ EPSS_URL: https://epss.empiricalsecurity.com/epss_scores-current.csv.gz
 # Optional local PoC feed. Supports CSV or JSON and is loaded offline/batch.
 POC_FEED_FILE: ${POC_FEED_FILE}
 
+# Optional automatic PoC feed builder. It reads trusted metadata sources and
+# writes POC_FEED_FILE/output_file. Prefer local mirrors/checkouts in production.
+POC_BUILD:
+  enabled: false
+  interval_seconds: 86400
+  output_file: feeds/cve_poc.csv
+  # Can be an HTTPS metadata URL or a local file path.
+  # For offline production, replace this with a local mirror path, for example:
+  # /data/security-feeds/exploitdb/files_exploits.csv
+  exploitdb_csv: https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv
+  # Optional extra sources. Uncomment when you want wider coverage.
+  # These can be GitHub repository URLs, ZIP archive URLs, or local directories.
+  # nuclei_templates: https://github.com/projectdiscovery/nuclei-templates
+  # poc_in_github: https://github.com/nomi-sec/PoC-in-GitHub
+  # trickest_cve: https://github.com/trickest/cve
+
 TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
 TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
 
@@ -40,4 +56,5 @@ SCHEDULE:
   kev_sync_seconds: 3600
   epss_sync_seconds: 86400
   enrichment_seconds: 900
+  full_refresh_seconds: 86400
   detect_new_agents_seconds: 300
