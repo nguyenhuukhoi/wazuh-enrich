@@ -444,6 +444,7 @@ ALERT_THRESHOLDS:
   cve_many_agents: 25
   send_all_impacted_cves: false
   send_all_alerts: false
+  public_poc_only: false
   max_top_cves: 10
 ```
 
@@ -468,6 +469,16 @@ ALERT_THRESHOLDS:
 ```
 
 Nếu muốn mỗi cycle đều gửi lại mọi CVE đang impact hệ thống, bật cả `send_all_impacted_cves: true` và `send_all_alerts: true`.
+
+Dùng `public_poc_only: true` khi bạn chỉ muốn alert những CVE có public PoC metadata. Filter này chạy sau khi đã biết CVE đó đang impact hệ thống, nên ý nghĩa là "CVE có public PoC và đang ảnh hưởng hệ thống này", không phải mọi CVE có PoC trên internet:
+
+```yaml
+ALERT_THRESHOLDS:
+  send_all_impacted_cves: true
+  send_all_alerts: true
+  public_poc_only: true
+  max_top_cves: 0
+```
 
 `max_top_cves: 0` nghĩa là đưa toàn bộ CVE match điều kiện vào Telegram message. Cẩn thận khi bật trên môi trường lớn vì message có thể rất dài hoặc vượt giới hạn Telegram.
 

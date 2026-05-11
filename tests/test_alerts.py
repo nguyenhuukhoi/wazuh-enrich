@@ -142,6 +142,58 @@ def test_send_all_impacted_cves_alerts_active_cves_even_without_risk_threshold(t
     assert "CVE-2026-LOW1" in manager.messages[0]
 
 
+def test_public_poc_only_filters_alert_cves(tmp_path):
+    state = StateStore(tmp_path / "state.json")
+    manager = CapturingAlertManager(
+        bot_token="",
+        chat_id="",
+        thresholds={
+            "send_all_alerts": True,
+            "send_all_impacted_cves": True,
+            "public_poc_only": True,
+            "max_top_cves": 10,
+        },
+        state=state,
+    )
+    cve_summary = [
+        {
+            "cve_id": "CVE-2026-POC",
+            "priority": "P3",
+            "kev": False,
+            "public_poc": True,
+            "epss_score": 0.01,
+            "cvss_score": 3.0,
+            "affected_hosts_count": 1,
+            "affected_packages": ["curl"],
+            "risk_score": 10,
+        },
+        {
+            "cve_id": "CVE-2026-NOPOC",
+            "priority": "P0",
+            "kev": True,
+            "public_poc": False,
+            "epss_score": 0.01,
+            "cvss_score": 9.0,
+            "affected_hosts_count": 1,
+            "affected_packages": ["kernel"],
+            "risk_score": 80,
+        },
+    ]
+
+    manager.process_cycle(
+        [
+            {"cve_id": "CVE-2026-POC", "agent_id": "001"},
+            {"cve_id": "CVE-2026-NOPOC", "agent_id": "001"},
+        ],
+        cve_summary,
+    )
+
+    assert len(manager.messages) == 1
+    assert "CVE-2026-POC" in manager.messages[0]
+    assert "CVE-2026-NOPOC" not in manager.messages[0]
+    assert "- Public PoC CVEs: 1" in manager.messages[0]
+
+
 def test_max_top_cves_zero_includes_all_cves(tmp_path):
     state = StateStore(tmp_path / "state.json")
     manager = CapturingAlertManager(

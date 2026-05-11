@@ -478,6 +478,7 @@ ALERT_THRESHOLDS:
   cve_many_agents: 25
   send_all_impacted_cves: false
   send_all_alerts: false
+  public_poc_only: false
   max_top_cves: 10
 ```
 
@@ -500,6 +501,16 @@ ALERT_THRESHOLDS:
 ```
 
 Use both when you want every currently impacted CVE sent on every cycle.
+
+Use `public_poc_only: true` when you only want CVEs with public PoC metadata in the alert. This filter is applied after Wazuh impact is known, so it means "public PoC CVEs that currently affect this system", not every public PoC CVE on the internet:
+
+```yaml
+ALERT_THRESHOLDS:
+  send_all_impacted_cves: true
+  send_all_alerts: true
+  public_poc_only: true
+  max_top_cves: 0
+```
 
 `max_top_cves: 0` means include every matched CVE in the Telegram message. Be careful with this on large environments because Telegram messages can become noisy or exceed message limits.
 

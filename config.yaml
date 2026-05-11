@@ -84,6 +84,8 @@ ALERT_THRESHOLDS:
   send_all_impacted_cves: false
   # false = dedup alert by state file. true = send every eligible alert every cycle.
   send_all_alerts: false
+  # true = only alert CVEs that currently impact the system and have public PoC metadata.
+  public_poc_only: false
   # Set 0 to include every matched CVE in the Telegram message.
   max_top_cves: 10
 

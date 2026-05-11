@@ -45,6 +45,7 @@ class AlertManager:
         self.dry_run = dry_run
         self.send_all_alerts = as_bool(thresholds.get("send_all_alerts", False))
         self.send_all_impacted_cves = as_bool(thresholds.get("send_all_impacted_cves", False))
+        self.public_poc_only = as_bool(thresholds.get("public_poc_only", False))
 
     def process_cycle(self, enriched_docs: list[dict[str, Any]], cve_summaries: list[dict[str, Any]]) -> None:
         interesting = self._new_interesting_cves(cve_summaries)
@@ -58,7 +59,11 @@ class AlertManager:
                     self.state.mark_alert_sent(key)
 
     def process_new_agent_baseline(self, agent_id: str, agent_name: str, enriched_docs: list[dict[str, Any]]) -> None:
-        priority_docs = [doc for doc in enriched_docs if doc.get("priority") in {"P0", "P1"}]
+        priority_docs = [
+            doc
+            for doc in enriched_docs
+            if doc.get("priority") in {"P0", "P1"} and (not self.public_poc_only or doc.get("public_poc"))
+        ]
         if not priority_docs:
             return
         key = f"new-agent|{agent_id}|baseline-p0-p1"
@@ -86,6 +91,8 @@ class AlertManager:
         epss_medium = float(self.thresholds.get("epss_medium", 0.3))
         many_agents = int(self.thresholds.get("cve_many_agents", 25))
         for cve in cve_summaries:
+            if self.public_poc_only and not cve.get("public_poc"):
+                continue
             cve_id = str(cve.get("cve_id", ""))
             kev = bool(cve.get("kev"))
             epss = float(cve.get("epss_score", 0.0))
