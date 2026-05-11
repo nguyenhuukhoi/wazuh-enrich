@@ -35,6 +35,7 @@ class Settings:
     verify_ssl: bool
     wazuh_vuln_index_pattern: str
     agent_inventory_index_patterns: list[str]
+    inventory_watch_timestamp_fields: list[str]
     enriched_index_prefix: str
     cve_summary_index_prefix: str
     host_summary_index_prefix: str
@@ -102,10 +103,15 @@ def load_config(path: str = "config.yaml") -> Settings:
                 "AGENT_INVENTORY_INDEX_PATTERNS",
                 [
                     "wazuh-states-inventory-system-*",
+                    "wazuh-states-inventory-packages-*",
+                    "wazuh-states-inventory-hotfixes-*",
                     "wazuh-states-inventory-interfaces-*",
                     "wazuh-states-inventory-networks-*",
                 ],
             )
+        ),
+        inventory_watch_timestamp_fields=_as_list(
+            cfg.get("INVENTORY_WATCH_TIMESTAMP_FIELDS", ["@timestamp", "event.created", "timestamp"])
         ),
         enriched_index_prefix=cfg["ENRICHED_INDEX_PREFIX"],
         cve_summary_index_prefix=cfg.get("CVE_SUMMARY_INDEX_PREFIX", "wazuh-vuln-cve-summary"),

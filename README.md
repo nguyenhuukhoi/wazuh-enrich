@@ -29,6 +29,9 @@ Daemon mode automatically:
 - Builds PoC feed from Exploit-DB metadata when `POC_BUILD.enabled` is true.
 - Syncs PoC metadata.
 - Syncs Ubuntu OVAL every 24 hours to verify affected packages and fixed versions.
+- Watches Wazuh inventory indices every 60 seconds and queues agents whose inventory changed.
+- Waits 180 seconds before processing changed agents so Wazuh has time to update vulnerability states.
+- Re-enriches only changed agents and incrementally updates the affected host/CVE summaries.
 - Runs incremental enrichment every 15 minutes.
 - Runs full refresh every 24 hours or when feed fingerprints change.
 - Detects new agents every 5 minutes.
@@ -43,6 +46,37 @@ wazuh-vuln-host-cve-impact-YYYY.MM.DD
 ```
 
 Dashboards should read these indices, not `wazuh-states-vulnerabilities-*` directly.
+
+## Wazuh-Aligned Incremental Updates
+
+The daemon has two update paths:
+
+```text
+Wazuh inventory changed for agent N
+        -> wait inventory_stabilization_seconds
+        -> query Wazuh vulnerabilities only for agent N
+        -> replace enriched docs only for agent N
+        -> rebuild host summary only for agent N
+        -> rebuild CVE summaries only for CVEs that agent N added or removed
+        -> rebuild host-CVE impact rows only for agent N
+```
+
+Feed changes still trigger a full refresh because KEV, EPSS, PoC, or Ubuntu metadata can change the risk score for existing findings across every host.
+
+```text
+Inventory update -> incremental agent refresh
+Feed update      -> full refresh
+Daily fallback   -> full refresh
+```
+
+The inventory watcher uses a watermark in `STATE_FILE`:
+
+```text
+last_inventory_timestamp
+pending_inventory_agents
+```
+
+It does not continuously query every agent. It queries inventory indices by timestamp, extracts changed `agent.id` values, then processes due agents in bounded batches.
 
 ## Install
 
@@ -97,8 +131,14 @@ The default config now uses these production runtime paths:
 WAZUH_VULN_INDEX_PATTERN: wazuh-states-vulnerabilities-*
 AGENT_INVENTORY_INDEX_PATTERNS:
   - wazuh-states-inventory-system-*
+  - wazuh-states-inventory-packages-*
+  - wazuh-states-inventory-hotfixes-*
   - wazuh-states-inventory-interfaces-*
   - wazuh-states-inventory-networks-*
+INVENTORY_WATCH_TIMESTAMP_FIELDS:
+  - "@timestamp"
+  - event.created
+  - timestamp
 
 CACHE_DIR: /var/lib/wazuh-enrich/cache
 STATE_FILE: /var/lib/wazuh-enrich/state.json
@@ -108,6 +148,8 @@ POC_BUILD:
 ```
 
 `AGENT_INVENTORY_INDEX_PATTERNS` is used to enrich real agent IP addresses in batch. Wazuh vulnerability documents can contain `agent.ip: 0.0.0.0`; the inventory indices usually contain the real `agent.host.ip`.
+
+`INVENTORY_WATCH_TIMESTAMP_FIELDS` controls which timestamp fields are tried when detecting recently changed inventory documents. Keep `@timestamp` first unless your Wazuh Indexer stores inventory timestamps under a custom field.
 
 Create the environment file:
 
@@ -259,6 +301,31 @@ cd /opt/wazuh-enrich
 .venv/bin/python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml --dry-run --log-format text enrich-all
 ```
 
+Dry-run normally does not write indices, save state, or send Telegram. To test the full alert path while keeping index/state writes disabled:
+
+```bash
+set -a
+. /etc/wazuh-enrich/wazuh-enrich.env
+set +a
+cd /opt/wazuh-enrich
+.venv/bin/python3 vuln_enricher.py \
+  --config /etc/wazuh-enrich/config.yaml \
+  --dry-run \
+  --dry-run-send-alerts \
+  --log-format text \
+  enrich-all
+```
+
+Send a real Telegram test message without running enrichment:
+
+```bash
+set -a
+. /etc/wazuh-enrich/wazuh-enrich.env
+set +a
+cd /opt/wazuh-enrich
+.venv/bin/python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml test-alert
+```
+
 Run real enrichment:
 
 ```bash
@@ -330,7 +397,9 @@ python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-poc-feed
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-poc
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-agent --agent-id 001
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml process-inventory-updates
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml detect-new-agents
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml test-alert
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml debug-agent-ip --agent-id 001
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml run-once
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml daemon

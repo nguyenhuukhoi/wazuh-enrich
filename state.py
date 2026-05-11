@@ -10,6 +10,8 @@ LOG = logging.getLogger(__name__)
 DEFAULT_STATE: dict[str, Any] = {
     "seen_agents": [],
     "last_processed_timestamp": None,
+    "last_inventory_timestamp": None,
+    "pending_inventory_agents": {},
     "last_kev_status_by_cve": {},
     "last_epss_threshold_by_cve": {},
     "alert_dedup_keys": {},
@@ -58,6 +60,33 @@ class StateStore:
     def set_last_processed_timestamp(self, timestamp: str | None) -> None:
         if timestamp:
             self.data["last_processed_timestamp"] = timestamp
+
+    def set_last_inventory_timestamp(self, timestamp: str | None) -> None:
+        if timestamp:
+            self.data["last_inventory_timestamp"] = timestamp
+
+    def queue_inventory_agent(self, agent_id: str, seen_at: str | None = None) -> None:
+        if not agent_id:
+            return
+        pending = self.data.setdefault("pending_inventory_agents", {})
+        pending.setdefault(str(agent_id), seen_at or datetime.now(timezone.utc).isoformat())
+
+    def due_inventory_agents(self, stabilization_seconds: int, limit: int) -> list[str]:
+        now = datetime.now(timezone.utc)
+        due = []
+        for agent_id, queued_at in sorted(self.data.setdefault("pending_inventory_agents", {}).items()):
+            try:
+                queued = datetime.fromisoformat(str(queued_at).replace("Z", "+00:00"))
+            except ValueError:
+                queued = now
+            if (now - queued).total_seconds() >= stabilization_seconds:
+                due.append(str(agent_id))
+            if len(due) >= limit:
+                break
+        return due
+
+    def clear_pending_inventory_agent(self, agent_id: str) -> None:
+        self.data.setdefault("pending_inventory_agents", {}).pop(str(agent_id), None)
 
     def update_kev_status(self, cve_id: str, kev: bool) -> tuple[bool, bool | None]:
         current = bool(kev)

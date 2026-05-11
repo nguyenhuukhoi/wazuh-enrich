@@ -214,7 +214,68 @@ class WazuhIndexerClient:
 
     def iter_index_sources(self, index: str, query: dict[str, Any] | None = None) -> Iterable[dict[str, Any]]:
         body = {"query": query or {"match_all": {}}}
-        yield from self._scroll_sources(index, body)
+        yield from self._scroll_sources(index, body, ignore_unavailable=True)
+
+    def latest_inventory_timestamp(self, timestamp_fields: list[str]) -> str | None:
+        index = ",".join([pattern for pattern in self.settings.agent_inventory_index_patterns if pattern])
+        if not index:
+            return None
+        for field in timestamp_fields:
+            body = {
+                "size": 1,
+                "query": {"exists": {"field": field}},
+                "_source": [field],
+                "sort": [{field: {"order": "desc", "unmapped_type": "date"}}],
+            }
+            try:
+                response = self.client.search(
+                    index=index,
+                    body=body,
+                    params={"ignore_unavailable": "true"},
+                )
+            except Exception as exc:
+                LOG.debug("latest_inventory_timestamp_field_failed field=%s error=%s", field, exc)
+                continue
+            hits = response.get("hits", {}).get("hits", [])
+            if not hits:
+                continue
+            timestamp = first_path(hits[0].get("_source") or {}, [field], None)
+            if timestamp:
+                return str(timestamp)
+        return None
+
+    def inventory_agents_updated_since(
+        self,
+        since: str,
+        timestamp_fields: list[str],
+        max_agents: int,
+    ) -> tuple[set[str], str | None]:
+        index = ",".join([pattern for pattern in self.settings.agent_inventory_index_patterns if pattern])
+        if not index or not since:
+            return set(), None
+        for field in timestamp_fields:
+            agents: set[str] = set()
+            newest: str | None = None
+            body = {
+                "query": {"range": {field: {"gt": since}}},
+                "_source": ["agent.id", field],
+                "sort": [{field: {"order": "asc", "unmapped_type": "date"}}],
+            }
+            try:
+                for source in self._scroll_sources(index, body, ignore_unavailable=True):
+                    agent_id = str(first_path(source, ["agent.id"], ""))
+                    timestamp = first_path(source, [field], None)
+                    if timestamp and (newest is None or str(timestamp) > newest):
+                        newest = str(timestamp)
+                    if agent_id:
+                        agents.add(agent_id)
+            except Exception as exc:
+                LOG.debug("inventory_updates_field_failed field=%s error=%s", field, exc)
+                continue
+            if agents or newest:
+                LOG.info("inventory_updates_detected field=%s agents=%s newest=%s", field, len(agents), newest)
+                return agents, newest
+        return set(), None
 
     def agent_metadata(self) -> dict[str, dict[str, Any]]:
         patterns = [pattern for pattern in self.settings.agent_inventory_index_patterns if pattern]
@@ -345,6 +406,21 @@ class WazuhIndexerClient:
             LOG.warning("bulk_index_errors index=%s errors=%s", index, error_count)
         LOG.info("bulk_index_done index=%s success=%s errors=%s", index, success, error_count)
         return int(success), error_count
+
+    def delete_by_query(self, index: str, query: dict[str, Any]) -> int:
+        try:
+            response = self.client.delete_by_query(
+                index=index,
+                body={"query": query},
+                params={"conflicts": "proceed", "ignore_unavailable": "true", "refresh": "true"},
+                request_timeout=self.settings.request_timeout_seconds,
+            )
+        except Exception as exc:
+            LOG.warning("delete_by_query_failed index=%s error=%s query=%s", index, exc, query)
+            return 0
+        deleted = int(response.get("deleted", 0))
+        LOG.info("delete_by_query_done index=%s deleted=%s", index, deleted)
+        return deleted
 
     def _scroll_sources(
         self,
