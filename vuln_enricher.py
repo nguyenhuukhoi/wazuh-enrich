@@ -2,6 +2,7 @@
 import argparse
 import json
 import logging
+import signal
 import sys
 import time
 from datetime import datetime, timezone
@@ -51,6 +52,14 @@ def configure_logging(level: str, log_format: str = "text") -> None:
 
 
 LOG = logging.getLogger("vuln_enricher")
+
+
+RELOAD_REQUESTED = False
+
+
+def request_reload(_signum: int, _frame: Any) -> None:
+    global RELOAD_REQUESTED
+    RELOAD_REQUESTED = True
 
 
 def load_local_or_sync_feeds(
@@ -462,27 +471,35 @@ def run_once(settings: Settings, dry_run: bool = False, dry_run_send_alerts: boo
         state.save()
 
 
-def daemon(settings: Settings, dry_run: bool = False, dry_run_send_alerts: bool = False) -> None:
+def daemon(config_path: str, settings: Settings, dry_run: bool = False, dry_run_send_alerts: bool = False) -> None:
+    global RELOAD_REQUESTED
     state = StateStore(settings.state_file)
     client = WazuhIndexerClient(settings)
     feed_sync = build_feed_sync(settings)
-    schedule = {
-        "kev_sync_seconds": settings.schedule.get("kev_sync_seconds", 3600),
-        "epss_sync_seconds": settings.schedule.get("epss_sync_seconds", 86400),
-        "enrichment_seconds": settings.schedule.get("enrichment_seconds", 900),
-        "full_refresh_seconds": settings.schedule.get("full_refresh_seconds", 86400),
-        "ubuntu_oval_sync_seconds": settings.schedule.get("ubuntu_oval_sync_seconds", 86400),
-        "ubuntu_osv_sync_seconds": settings.schedule.get("ubuntu_osv_sync_seconds", 86400),
-        "inventory_watch_seconds": settings.schedule.get("inventory_watch_seconds", 60),
-        "poc_build_seconds": int(settings.poc_build.get("interval_seconds", 86400)),
-        "detect_new_agents_seconds": settings.schedule.get("detect_new_agents_seconds", 300),
-    }
+    schedule = build_daemon_schedule(settings)
     last_run = {key: 0.0 for key in schedule}
     last_run["full_refresh_seconds"] = time.monotonic()
+    install_reload_handler()
     LOG.info("daemon_started schedule=%s dry_run=%s", schedule, dry_run)
     while True:
         now = time.monotonic()
         try:
+            if RELOAD_REQUESTED:
+                RELOAD_REQUESTED = False
+                try:
+                    if not dry_run:
+                        state.save()
+                    settings = load_config(config_path)
+                    state = StateStore(settings.state_file)
+                    client = WazuhIndexerClient(settings)
+                    feed_sync = build_feed_sync(settings)
+                    schedule = build_daemon_schedule(settings)
+                    last_run = {key: last_run.get(key, 0.0) for key in schedule}
+                    last_run.setdefault("full_refresh_seconds", now)
+                    LOG.info("daemon_reloaded config=%s schedule=%s", config_path, schedule)
+                except Exception:
+                    LOG.exception("daemon_reload_failed keeping_previous_config=true")
+                    continue
             feeds_changed = False
             if now - last_run["kev_sync_seconds"] >= schedule["kev_sync_seconds"]:
                 before = feed_sync.fingerprints()
@@ -545,6 +562,28 @@ def daemon(settings: Settings, dry_run: bool = False, dry_run_send_alerts: bool 
         except Exception:
             LOG.exception("daemon_cycle_failed")
         time.sleep(10)
+
+
+def build_daemon_schedule(settings: Settings) -> dict[str, int]:
+    return {
+        "kev_sync_seconds": settings.schedule.get("kev_sync_seconds", 3600),
+        "epss_sync_seconds": settings.schedule.get("epss_sync_seconds", 86400),
+        "enrichment_seconds": settings.schedule.get("enrichment_seconds", 900),
+        "full_refresh_seconds": settings.schedule.get("full_refresh_seconds", 86400),
+        "ubuntu_oval_sync_seconds": settings.schedule.get("ubuntu_oval_sync_seconds", 86400),
+        "ubuntu_osv_sync_seconds": settings.schedule.get("ubuntu_osv_sync_seconds", 86400),
+        "inventory_watch_seconds": settings.schedule.get("inventory_watch_seconds", 60),
+        "poc_build_seconds": int(settings.poc_build.get("interval_seconds", 86400)),
+        "detect_new_agents_seconds": settings.schedule.get("detect_new_agents_seconds", 300),
+    }
+
+
+def install_reload_handler() -> None:
+    if not hasattr(signal, "SIGHUP"):
+        LOG.info("reload_signal_unavailable platform=%s", sys.platform)
+        return
+    signal.signal(signal.SIGHUP, request_reload)
+    LOG.info("reload_signal_ready signal=SIGHUP")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -636,7 +675,7 @@ def main(argv: list[str] | None = None) -> int:
             run_once(settings, dry_run=args.dry_run, dry_run_send_alerts=args.dry_run_send_alerts)
             return 0
         elif args.command == "daemon":
-            daemon(settings, dry_run=args.dry_run, dry_run_send_alerts=args.dry_run_send_alerts)
+            daemon(args.config, settings, dry_run=args.dry_run, dry_run_send_alerts=args.dry_run_send_alerts)
             return 0
 
         if not args.dry_run:

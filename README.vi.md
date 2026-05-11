@@ -387,6 +387,7 @@ Type=simple
 WorkingDirectory=/opt/wazuh-enrich
 EnvironmentFile=/etc/wazuh-enrich/wazuh-enrich.env
 ExecStart=/opt/wazuh-enrich/.venv/bin/python3 /opt/wazuh-enrich/vuln_enricher.py --config /etc/wazuh-enrich/config.yaml daemon
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=10
 
@@ -407,6 +408,15 @@ Xem log:
 ```bash
 sudo journalctl -u wazuh-enrich -f
 ```
+
+Reload service sau khi sua `/etc/wazuh-enrich/config.yaml` hoac `/etc/wazuh-enrich/wazuh-enrich.env`:
+
+```bash
+sudo systemctl reload wazuh-enrich
+sudo journalctl -u wazuh-enrich -n 50 --no-pager
+```
+
+Reload gui `SIGHUP` toi daemon. Process van chay, save state hien tai, doc lai config, reconnect Wazuh Indexer, rebuild feed client, va giu config cu neu config moi bi loi.
 
 ## CLI ChÃ­nh
 

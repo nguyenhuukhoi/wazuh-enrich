@@ -374,6 +374,7 @@ Type=simple
 WorkingDirectory=/opt/wazuh-enrich
 EnvironmentFile=/etc/wazuh-enrich/wazuh-enrich.env
 ExecStart=/opt/wazuh-enrich/.venv/bin/python3 /opt/wazuh-enrich/vuln_enricher.py --config /etc/wazuh-enrich/config.yaml daemon
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=10
 
@@ -388,6 +389,15 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now wazuh-enrich
 sudo journalctl -u wazuh-enrich -f
 ```
+
+Reload after editing `/etc/wazuh-enrich/config.yaml` or `/etc/wazuh-enrich/wazuh-enrich.env`:
+
+```bash
+sudo systemctl reload wazuh-enrich
+sudo journalctl -u wazuh-enrich -n 50 --no-pager
+```
+
+Reload sends `SIGHUP` to the daemon. The process stays running, saves current state, reloads config, reconnects to Wazuh Indexer, rebuilds feed clients, and keeps the previous config if the new config is invalid.
 
 ## CLI
 
