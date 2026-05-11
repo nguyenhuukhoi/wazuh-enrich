@@ -397,7 +397,7 @@ sudo systemctl reload wazuh-enrich
 sudo journalctl -u wazuh-enrich -n 50 --no-pager
 ```
 
-Reload sends `SIGHUP` to the daemon. The process stays running, saves current state, reloads config, reconnects to Wazuh Indexer, rebuilds feed clients, and keeps the previous config if the new config is invalid.
+Reload sends `SIGHUP` to the daemon. The process stays running, saves current state, reloads config, reconnects to Wazuh Indexer, rebuilds feed clients, and keeps the previous config if the new config is invalid. Reload does not download feeds immediately; feed sync still follows the configured schedule, ETag/Last-Modified checks, or a manual `sync-feeds` run.
 
 ## CLI
 

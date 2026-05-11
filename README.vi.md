@@ -1,73 +1,41 @@
-﻿# Wazuh Vulnerability Enrichment
+# Wazuh Vulnerability Enrichment
 
 English version: [README.md](README.md)
 
-Service enrich vulnerability findings cá»§a Wazuh 4.14.x báº±ng CISA KEV, FIRST EPSS, PoC metadata vÃ  Ubuntu OVAL verification. Service Ä‘á»c findings tá»« Wazuh Indexer theo batch, xÃ¡c minh package Ubuntu/fixed version báº±ng metadata chÃ­nh thá»‘ng cá»§a Canonical, ghi enriched/summary index riÃªng, gá»­i alert dáº¡ng tá»•ng há»£p, vÃ  phá»¥c vá»¥ dashboard overview.
+Service enrich vulnerability findings của Wazuh 4.14.x bằng CISA KEV, FIRST EPSS, PoC metadata và Ubuntu OVAL/OSV verification. Service đọc findings từ Wazuh Indexer theo batch, ghi enriched/summary index riêng, gửi alert dạng tổng hợp, và phục vụ dashboard overview.
 
-KhÃ´ng dÃ¹ng NVD trong phase nÃ y. KhÃ´ng gá»i EPSS API theo tá»«ng CVE. KhÃ´ng query tá»«ng agent liÃªn tá»¥c.
+Phase này không dùng NVD, không gọi EPSS API theo từng CVE, không query từng agent liên tục.
 
-## Production Flow
+## Flow Production
 
 ```text
 Wazuh vulnerability findings
-        â†“
-sync KEV + EPSS + build/sync PoC feed + Ubuntu OVAL
-        â†“
+        ↓
+sync KEV + EPSS + PoC feed + Ubuntu OVAL/OSV
+        ↓
 enrich findings
-        â†“
+        ↓
 wazuh-vuln-enriched-YYYY.MM.DD
-        â†“
-CVE summary + Host summary
-        â†“
+        ↓
+CVE summary + Host summary + Host-CVE impact
+        ↓
 dashboard + aggregate alert
 ```
 
-## Cap Nhat Incremental Theo Nhip Wazuh
+Daemon tự làm:
 
-Daemon co 2 duong update:
-
-```text
-Inventory cua agent N vua doi trong Wazuh
-        -> cho inventory_stabilization_seconds
-        -> query Wazuh vulnerabilities chi cua agent N
-        -> replace enriched docs chi cua agent N
-        -> rebuild host summary chi cua agent N
-        -> rebuild CVE summary chi cho CVE agent N them hoac mat
-        -> rebuild host-CVE impact row chi cua agent N
-```
-
-Khi feed doi thi van can full refresh, vi KEV, EPSS, PoC hoac Ubuntu metadata co the lam doi risk score cua finding cu tren moi host.
-
-```text
-Inventory update -> refresh incremental theo agent
-Feed update      -> full refresh
-Daily fallback   -> full refresh
-```
-
-Inventory watcher luu watermark trong `STATE_FILE`:
-
-```text
-last_inventory_timestamp
-pending_inventory_agents
-```
-
-No khong query tung agent lien tuc. No query inventory index theo timestamp, lay danh sach `agent.id` da doi, roi xu ly theo batch co gioi han.
-
-Daemon tá»± lÃ m:
-
-- Sync CISA KEV má»—i 1 giá».
-- Sync EPSS má»—i 24 giá».
-- Build PoC feed tá»« Exploit-DB metadata náº¿u báº­t `POC_BUILD.enabled`.
+- Sync CISA KEV mỗi 1 giờ.
+- Sync EPSS mỗi 24 giờ.
+- Build PoC feed từ Exploit-DB metadata nếu bật `POC_BUILD.enabled`.
 - Sync PoC metadata.
-- Watch Wazuh inventory index moi 60 giay va queue agent nao vua doi inventory.
-- Cho 180 giay truoc khi xu ly agent da doi de Wazuh kip cap nhat vulnerability state.
-- Chi enrich lai agent da doi va update incremental cac summary bi anh huong.
-- Sync Ubuntu OVAL má»—i 24 giá» Ä‘á»ƒ xÃ¡c minh package bá»‹ áº£nh hÆ°á»Ÿng vÃ  fixed version.
-- Enrich incremental má»—i 15 phÃºt.
-- Full refresh má»—i 24 giá» hoáº·c khi feed Ä‘á»•i.
-- Detect agent má»›i má»—i 5 phÃºt.
+- Sync Ubuntu OVAL/OSV mỗi 24 giờ để xác minh package bị ảnh hưởng và fixed version.
+- Watch Wazuh inventory index mỗi 60 giây và queue agent nào vừa đổi inventory.
+- Chờ 180 giây trước khi xử lý agent đã đổi để Wazuh kịp cập nhật vulnerability state.
+- Chỉ enrich lại agent đã đổi và update incremental các summary bị ảnh hưởng.
+- Full refresh mỗi 24 giờ hoặc khi feed fingerprint đổi.
+- Detect agent mới mỗi 5 phút.
 
-## Index ÄÆ°á»£c Táº¡o
+## Index Được Tạo
 
 ```text
 wazuh-vuln-enriched-YYYY.MM.DD
@@ -76,11 +44,42 @@ wazuh-vuln-host-summary-YYYY.MM.DD
 wazuh-vuln-host-cve-impact-YYYY.MM.DD
 ```
 
-Dashboard nÃªn Ä‘á»c 3 index nÃ y, khÃ´ng Ä‘á»c trá»±c tiáº¿p `wazuh-states-vulnerabilities-*`.
+Dashboard nên đọc các index này, không đọc trực tiếp `wazuh-states-vulnerabilities-*`.
 
-## CÃ i Äáº·t
+## Incremental Theo Nhịp Wazuh
 
-CÃ i package cáº§n thiáº¿t vÃ  clone project vÃ o `/opt/wazuh-enrich`:
+Daemon có 2 đường update:
+
+```text
+Inventory của agent N vừa đổi trong Wazuh
+        -> chờ inventory_stabilization_seconds
+        -> query Wazuh vulnerabilities chỉ của agent N
+        -> replace enriched docs chỉ của agent N
+        -> rebuild host summary chỉ của agent N
+        -> rebuild CVE summary chỉ cho CVE agent N thêm hoặc mất
+        -> rebuild host-CVE impact row chỉ của agent N
+```
+
+Khi feed đổi thì vẫn cần full refresh, vì KEV, EPSS, PoC hoặc Ubuntu metadata có thể làm đổi risk score của finding cũ trên mọi host.
+
+```text
+Inventory update -> refresh incremental theo agent
+Feed update      -> full refresh
+Daily fallback   -> full refresh
+```
+
+Inventory watcher lưu watermark trong `STATE_FILE`:
+
+```text
+last_inventory_timestamp
+pending_inventory_agents
+```
+
+Nó không query từng agent liên tục. Nó query inventory index theo timestamp, lấy danh sách `agent.id` đã đổi, rồi xử lý theo batch có giới hạn.
+
+## Cài Đặt
+
+Clone project vào `/opt/wazuh-enrich`:
 
 ```bash
 sudo apt-get update
@@ -100,7 +99,7 @@ deactivate
 sudo chown -R root:root /opt/wazuh-enrich
 ```
 
-Náº¿u thÆ° má»¥c Ä‘Ã£ tá»“n táº¡i, update code:
+Nếu thư mục đã tồn tại:
 
 ```bash
 cd /opt/wazuh-enrich
@@ -113,11 +112,9 @@ deactivate
 sudo chown -R root:root /opt/wazuh-enrich
 ```
 
-## Cáº¥u HÃ¬nh
+## Cấu Hình
 
-Credential Ä‘á»ƒ trong environment file, khÃ´ng hardcode vÃ o code.
-
-Layout production nÃªn dÃ¹ng:
+Tạo layout production:
 
 ```bash
 sudo mkdir -p /etc/wazuh-enrich /var/lib/wazuh-enrich/cache /var/lib/wazuh-enrich/feeds
@@ -127,7 +124,7 @@ sudo chmod 700 /etc/wazuh-enrich
 sudo chmod 600 /etc/wazuh-enrich/config.yaml
 ```
 
-Config máº·c Ä‘á»‹nh Ä‘Ã£ dÃ¹ng cÃ¡c runtime path production nÃ y:
+Các path mặc định:
 
 ```yaml
 WAZUH_VULN_INDEX_PATTERN: wazuh-states-vulnerabilities-*
@@ -144,20 +141,19 @@ INVENTORY_WATCH_TIMESTAMP_FIELDS:
 
 CACHE_DIR: /var/lib/wazuh-enrich/cache
 STATE_FILE: /var/lib/wazuh-enrich/state.json
-
-POC_BUILD:
-  output_file: /var/lib/wazuh-enrich/feeds/cve_poc.csv
 ```
 
-`AGENT_INVENTORY_INDEX_PATTERNS` dÃ¹ng Ä‘á»ƒ enrich IP tháº­t cá»§a agent theo batch. Wazuh vulnerability document cÃ³ thá»ƒ ghi `agent.ip: 0.0.0.0`; inventory index thÆ°á»ng cÃ³ IP tháº­t á»Ÿ `agent.host.ip`.
+`AGENT_INVENTORY_INDEX_PATTERNS` dùng để enrich IP thật của agent và detect inventory update. Wazuh vulnerability document có thể ghi `agent.ip: 0.0.0.0`; inventory index thường có IP thật ở `agent.host.ip`, `host.ip`, `network.ip` hoặc field IP khác.
 
-Táº¡o environment file:
+`INVENTORY_WATCH_TIMESTAMP_FIELDS` là danh sách field timestamp dùng để phát hiện inventory document mới. Giữ `@timestamp` ở đầu nếu Wazuh Indexer của bạn không dùng field custom.
+
+Tạo environment file:
 
 ```bash
 sudo nano /etc/wazuh-enrich/wazuh-enrich.env
 ```
 
-VÃ­ dá»¥ `/etc/wazuh-enrich/wazuh-enrich.env`:
+Ví dụ:
 
 ```bash
 WAZUH_INDEXER_URL=https://127.0.0.1:9200
@@ -168,20 +164,20 @@ TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 ```
 
-KhÃ³a quyá»n file credential:
+Bảo vệ credential:
 
 ```bash
 sudo chown root:root /etc/wazuh-enrich/wazuh-enrich.env
 sudo chmod 600 /etc/wazuh-enrich/wazuh-enrich.env
 ```
 
-Náº¿u lab muá»‘n bá» SSL verify vá»›i Wazuh Indexer, sá»­a `/etc/wazuh-enrich/config.yaml`:
+Lab có thể bỏ SSL verify:
 
 ```yaml
 VERIFY_SSL: false
 ```
 
-Production nÃªn dÃ¹ng:
+Production nên dùng:
 
 ```yaml
 VERIFY_SSL: true
@@ -190,7 +186,7 @@ WAZUH_CA_CERT: /path/to/root-ca.pem
 
 ## PoC Feed
 
-Máº·c Ä‘á»‹nh config dÃ¹ng Exploit-DB metadata:
+Mặc định PoC build source là Exploit-DB metadata:
 
 ```yaml
 POC_BUILD:
@@ -198,33 +194,16 @@ POC_BUILD:
   interval_seconds: 86400
   output_file: /var/lib/wazuh-enrich/feeds/cve_poc.csv
   exploitdb_csv: https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv
-  # Optional extra sources:
-  # nuclei_templates: https://github.com/projectdiscovery/nuclei-templates
-  # poc_in_github: https://github.com/nomi-sec/PoC-in-GitHub
-  # trickest_cve: https://github.com/trickest/cve
 ```
 
-Muá»‘n daemon tá»± build PoC feed thÃ¬ báº­t:
+Bật auto build PoC feed:
 
 ```yaml
 POC_BUILD:
   enabled: true
 ```
 
-Náº¿u muá»‘n dÃ¹ng file local tá»± quáº£n lÃ½:
-
-```bash
-export POC_FEED_FILE=/var/lib/wazuh-enrich/feeds/cve_poc.csv
-```
-
-Format CSV:
-
-```csv
-cve,url,source
-CVE-2026-0001,https://www.exploit-db.com/exploits/12345,Exploit-DB
-```
-
-Tool build thá»§ cÃ´ng váº«n cÃ³ sáºµn:
+Build thủ công:
 
 ```bash
 python3 tools/build_poc_feed.py \
@@ -232,31 +211,24 @@ python3 tools/build_poc_feed.py \
   --output /var/lib/wazuh-enrich/feeds/cve_poc.csv
 ```
 
-## Ubuntu Impact Verification
+Field PoC được ghi vào enriched/summary docs:
 
-Pháº§n nÃ y Ä‘Æ°á»£c báº­t máº·c Ä‘á»‹nh. Service dÃ¹ng Ubuntu OVAL vÃ  Ubuntu OSV chÃ­nh thá»‘ng cá»§a Canonical Ä‘á»ƒ xÃ¡c minh CVE/package/fixed version cho Ubuntu agent. OVAL dÃ¹ng cho USN/fixed-version patch data. OSV mirror dá»¯ liá»‡u Ubuntu Security Tracker vÃ  cÃ³ cáº£ CVE/package Ä‘Ã£ biáº¿t bá»‹ áº£nh hÆ°á»Ÿng dÃ¹ chÆ°a cÃ³ security update. Feed Ä‘Æ°á»£c táº£i theo batch vÃ  cache local, khÃ´ng gá»i Canonical theo tá»«ng CVE hoáº·c tá»«ng agent.
-
-Config máº·c Ä‘á»‹nh:
-
-```yaml
-UBUNTU_OVAL:
-  enabled: true
-  max_age_hours: 24
-  base_url: https://security-metadata.canonical.com/oval
-  osv_enabled: true
-  osv_url: https://security-metadata.canonical.com/osv/osv-all.tar.xz
-  osv_max_age_hours: 24
-  releases:
-    - noble   # Ubuntu 24.04
-    - jammy   # Ubuntu 22.04
-    - focal   # Ubuntu 20.04
-  urls:
-    noble: https://security-metadata.canonical.com/oval/com.ubuntu.noble.usn.oval.xml.bz2
-    jammy: https://security-metadata.canonical.com/oval/com.ubuntu.jammy.usn.oval.xml.bz2
-    focal: https://security-metadata.canonical.com/oval/com.ubuntu.focal.usn.oval.xml.bz2
+```text
+public_poc
+poc_count
+poc_references
+poc_sources
 ```
 
-Field Ä‘Æ°á»£c ghi thÃªm vÃ o enriched/summary docs:
+## Ubuntu Impact Verification
+
+Ubuntu verification dùng Canonical Ubuntu OVAL và Ubuntu OSV.
+
+- OVAL cung cấp USN/fixed-version patch data.
+- OSV mirror dữ liệu Ubuntu Security Tracker và có cả CVE/package đã biết bị ảnh hưởng dù chưa có security update.
+- Service tải feed theo batch, cache local, không gọi Canonical theo từng CVE hoặc từng agent.
+
+Field được ghi thêm:
 
 ```text
 verification_status
@@ -272,20 +244,18 @@ fix_status
 ubuntu_release
 ```
 
-Ã nghÄ©a tráº¡ng thÃ¡i:
+Ý nghĩa trạng thái:
 
-- `confirmed_affected`: Wazuh finding Ä‘ang active vÃ  Ubuntu OVAL xÃ¡c nháº­n installed version tháº¥p hÆ¡n fixed version.
-- `likely_affected`: Ubuntu OVAL/OSV xÃ¡c nháº­n CVE/package, nhÆ°ng chÆ°a cÃ³ fixed version hoáº·c khÃ´ng Ä‘á»§ dá»¯ liá»‡u Ä‘á»ƒ compare version.
-- `installed_version_at_or_above_fixed`: installed version cÃ³ váº» Ä‘Ã£ báº±ng hoáº·c cao hÆ¡n fixed version. Náº¿u Wazuh váº«n bÃ¡o active thÃ¬ nÃªn cháº¡y láº¡i vulnerability detection/check inventory.
-- `vendor_not_found`: Wazuh bÃ¡o CVE nhÆ°ng khÃ´ng tÃ¬m tháº¥y CVE/package trong Ubuntu OVAL cache cá»§a release Ä‘Ã³.
+- `confirmed_affected`: Wazuh finding đang active và Ubuntu OVAL cho thấy installed version thấp hơn fixed version.
+- `likely_affected`: Ubuntu OVAL/OSV xác nhận CVE/package nhưng thiếu fixed version hoặc không đủ dữ liệu để compare.
+- `installed_version_at_or_above_fixed`: installed version có vẻ đã bằng hoặc cao hơn fixed version. Nếu Wazuh vẫn báo active thì nên chạy lại vulnerability detection/check inventory.
+- `vendor_not_found`: Wazuh báo CVE nhưng không tìm thấy CVE/package trong Ubuntu metadata cache của release đó.
 
-Khi nhÃ¬n dashboard/report, báº¡n nÃªn Æ°u tiÃªn cÃ¡c dÃ²ng cÃ³ `confirmed_affected=true`, `fix_available=true`, kÃ¨m `KEV=true` hoáº·c `public_poc=true`.
+Kernel Ubuntu: Wazuh thường báo binary package như `linux-image-6.8.0-36-generic`, còn Canonical hay tracking CVE theo source package `linux`. Enricher map các kernel binary package phổ biến về `linux` để tránh false `vendor_not_found`.
 
-RiÃªng Ubuntu kernel, Wazuh thÆ°á»ng tráº£ binary package nhÆ° `linux-image-6.8.0-36-generic`, cÃ²n Canonical tracking CVE theo source package nhÆ° `linux`. Enricher sáº½ map cÃ¡c kernel binary package phá»• biáº¿n vá» `linux` Ä‘á»ƒ trÃ¡nh bÃ¡o sai `vendor_not_found`.
+## Chạy Lần Đầu
 
-## Cháº¡y Láº§n Äáº§u
-
-Vá»›i layout production cháº¡y báº±ng root, cháº¡y kiá»ƒm tra nhÆ° sau:
+Sync feed:
 
 ```bash
 set -a
@@ -295,7 +265,7 @@ cd /opt/wazuh-enrich
 .venv/bin/python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-feeds
 ```
 
-Dry-run Ä‘á»ƒ kiá»ƒm tra:
+Dry-run, không ghi index/state và không gửi Telegram:
 
 ```bash
 set -a
@@ -305,7 +275,7 @@ cd /opt/wazuh-enrich
 .venv/bin/python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml --dry-run --log-format text enrich-all
 ```
 
-Dry-run mac dinh khong ghi index, khong save state, va khong gui Telegram. Neu muon test alert Telegram that trong luc van khong ghi index/state:
+Dry-run nhưng vẫn gửi Telegram thật nếu có alert:
 
 ```bash
 set -a
@@ -320,7 +290,7 @@ cd /opt/wazuh-enrich
   enrich-all
 ```
 
-Gui mot Telegram test message that ma khong can chay enrichment:
+Gửi Telegram test message thật, không cần chạy enrichment:
 
 ```bash
 set -a
@@ -330,7 +300,7 @@ cd /opt/wazuh-enrich
 .venv/bin/python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml test-alert
 ```
 
-Náº¿u á»•n, enrich tháº­t:
+Enrich thật:
 
 ```bash
 set -a
@@ -340,41 +310,24 @@ cd /opt/wazuh-enrich
 .venv/bin/python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all
 ```
 
-Náº¿u muá»‘n cháº¡y thá»§ cÃ´ng á»Ÿ shell hiá»‡n táº¡i, nhá»› load env vÃ  truyá»n config:
-
-```bash
-set -a
-. /etc/wazuh-enrich/wazuh-enrich.env
-set +a
-python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all
-```
-
-Kiá»ƒm tra index:
+Kiểm tra index:
 
 ```bash
 curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
   "$WAZUH_INDEXER_URL/_cat/indices/wazuh-vuln-*?v"
 ```
 
-## Cháº¡y Production Báº±ng systemd
+## systemd
 
-Service nÃ y chá»§ Ä‘á»™ng cháº¡y báº±ng root. Unit khÃ´ng set `User=` hoáº·c `Group=`, nÃªn systemd máº·c Ä‘á»‹nh dÃ¹ng root.
+Service chạy bằng root. Unit không set `User=` hoặc `Group=`.
 
-Äáº£m báº£o runtime directories thuá»™c root trÆ°á»›c khi báº­t service:
-
-```bash
-sudo chown -R root:root /etc/wazuh-enrich /var/lib/wazuh-enrich
-sudo chmod 700 /etc/wazuh-enrich
-sudo chmod 700 /var/lib/wazuh-enrich
-```
-
-Táº¡o service:
+Tạo unit:
 
 ```bash
 sudo nano /etc/systemd/system/wazuh-enrich.service
 ```
 
-Ná»™i dung:
+Nội dung:
 
 ```ini
 [Unit]
@@ -395,30 +348,24 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
-Báº­t service:
+Bật service:
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now wazuh-enrich
-sudo systemctl status wazuh-enrich
-```
-
-Xem log:
-
-```bash
 sudo journalctl -u wazuh-enrich -f
 ```
 
-Reload service sau khi sua `/etc/wazuh-enrich/config.yaml` hoac `/etc/wazuh-enrich/wazuh-enrich.env`:
+Reload sau khi sửa `/etc/wazuh-enrich/config.yaml` hoặc `/etc/wazuh-enrich/wazuh-enrich.env`:
 
 ```bash
 sudo systemctl reload wazuh-enrich
 sudo journalctl -u wazuh-enrich -n 50 --no-pager
 ```
 
-Reload gui `SIGHUP` toi daemon. Process van chay, save state hien tai, doc lai config, reconnect Wazuh Indexer, rebuild feed client, va giu config cu neu config moi bi loi.
+Reload gửi `SIGHUP` tới daemon. Process vẫn chạy, save state hiện tại, đọc lại config, reconnect Wazuh Indexer, tạo lại feed client, cập nhật schedule. Reload **không tải feed ngay** để tránh chạy tác vụ nặng bất ngờ; feed vẫn sync theo lịch, theo ETag/Last-Modified, hoặc khi bạn chạy `sync-feeds`. Nếu config mới lỗi, daemon giữ config cũ và log lỗi.
 
-## CLI ChÃ­nh
+## CLI Chính
 
 ```bash
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-feeds
@@ -434,7 +381,7 @@ python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml run-once
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml daemon
 ```
 
-Log máº·c Ä‘á»‹nh lÃ  JSON. Khi Ä‘á»c terminal:
+Log mặc định là JSON. Khi đọc terminal:
 
 ```bash
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml --log-format text --dry-run run-once
@@ -443,39 +390,30 @@ python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml --log-format tex
 ## Priority
 
 ```text
-P0: KEV=true, hoáº·c EPSS >= 0.7 vÃ  CVSS >= 8
-P1: EPSS >= 0.3, hoáº·c CVSS >= 8
+P0: KEV=true, hoặc EPSS >= 0.7 và CVSS >= 8
+P1: EPSS >= 0.3, hoặc CVSS >= 8
 P2: CVSS >= 6
-P3: cÃ²n láº¡i
+P3: còn lại
 ```
 
 Risk score:
 
 ```text
-(epss_score * 50) + (cvss_score * 3) + (30 náº¿u kev=true)
-```
-
-PoC hiá»‡n lÃ  enrichment signal:
-
-```text
-public_poc
-poc_count
-poc_references
-poc_sources
+(epss_score * 50) + (cvss_score * 3) + (30 nếu kev=true)
 ```
 
 ## Alert
 
-Alert chá»‰ gá»­i khi cÃ³ tÃ­n hiá»‡u quan trá»ng:
+Service gửi alert tổng hợp, không spam từng finding. Điều kiện chính:
 
-- CVE náº±m trong KEV.
-- Priority P0.
-- EPSS vÆ°á»£t threshold.
-- Agent má»›i cÃ³ P0/P1.
-- CVE chuyá»ƒn tá»« non-KEV sang KEV.
-- CVE áº£nh hÆ°á»Ÿng nhiá»u agent.
+- CVE nằm trong CISA KEV.
+- Priority là P0.
+- EPSS vượt threshold.
+- Agent mới có P0/P1.
+- CVE chuyển từ non-KEV sang KEV.
+- CVE ảnh hưởng nhiều agent.
 
-VÃ­ dá»¥:
+Ví dụ:
 
 ```text
 CRITICAL - Exploited CVEs detected
@@ -486,68 +424,33 @@ Summary:
 - KEV CVEs: 2
 - Public PoC CVEs: 1
 - EPSS >= 0.7: 3
-
-Top CVEs:
-1. CVE-2025-0001 | KEV=yes | PoC=yes | EPSS=0.94 | CVSS=9.8 | hosts=72 | package=openssl
 ```
 
 ## Dashboard
 
-Báº¡n cÃ³ thá»ƒ tá»± táº¡o dashboard thá»§ cÃ´ng hoáº·c import saved objects trong `dashboard/`.
-
-Data views cáº§n cÃ³:
+Tạo data view:
 
 ```text
-wazuh-vuln-enriched-*       time field: enriched_at
-wazuh-vuln-cve-summary-*    time field: updated_at
+wazuh-vuln-enriched-*        time field: enriched_at
+wazuh-vuln-cve-summary-*     time field: updated_at
 wazuh-vuln-host-cve-impact-* time field: updated_at
 ```
 
-Dashboard import chá»§ Ä‘á»™ng chá»‰ giá»¯ cÃ¡c panel cáº§n thiáº¿t:
-
-- Impact Filters.
-- Public PoC CVEs Impacting This System.
-- Hosts Affected by Public PoC CVEs.
-
-Náº¿u dÃ¹ng import:
+Dashboard import là tùy chọn và tách khỏi flow enrichment:
 
 ```bash
 python3 dashboard/manage_saved_objects.py reimport --no-verify-ssl
 ```
 
-Import dashboard khÃ´ng náº±m trong flow enrich/daemon. Dashboard chá»‰ Ä‘á»c index Ä‘Ã£ Ä‘Æ°á»£c service cáº­p nháº­t.
+Dashboard hiện có:
 
-Panel filter vÃ  báº£ng host impact láº¥y tá»« `wazuh-vuln-host-cve-impact-*`. Index nÃ y cÃ³ Ä‘Ãºng 1 document cho má»—i `cve_id + agent_id`, nÃªn báº£ng host khÃ´ng bá»‹ duplicate theo package/version. CÃ³ 2 dropdown:
+- Impact Filters.
+- Public PoC CVEs Impacting This System.
+- Hosts Affected by Public PoC CVEs.
 
-```text
-impact_cve_id
-impact_host
-```
+## Kiểm Tra Nhanh
 
-Hai field nÃ y chá»‰ Ä‘Æ°á»£c ghi khi `public_poc:true`, nÃªn dropdown khÃ´ng list CVE global hoáº·c CVE khÃ´ng impact.
-Control import dÃ¹ng subfield `.keyword` Ä‘á»ƒ terms aggregation khÃ´ng bá»‹ lá»—i `Bad Request`.
-Data view enriched dÃ¹ng `enriched_at` lÃ m time field Ä‘á»ƒ báº£ng host impact hiá»ƒn thá»‹ tráº¡ng thÃ¡i enrich má»›i nháº¥t, khÃ´ng bá»‹ áº©n host vÃ¬ `detected_at` quÃ¡ cÅ© so vá»›i time picker.
-
-Panel CVE summary láº¥y tá»« `wazuh-vuln-cve-summary-*` vá»›i Ä‘iá»u kiá»‡n:
-
-```text
-public_poc:true and affected_hosts_count > 0
-```
-
-NhÆ° váº­y dashboard chá»‰ hiá»‡n CVE cÃ³ PoC cÃ´ng khai vÃ  Ä‘ang tháº­t sá»± áº£nh hÆ°á»Ÿng tá»›i host/package trong há»‡ thá»‘ng, khÃ´ng hiá»‡n danh sÃ¡ch PoC global ngoÃ i internet.
-
-## Query Kiá»ƒm Tra Nhanh
-
-Top CVE nguy hiá»ƒm:
-
-```bash
-curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
-  "$WAZUH_INDEXER_URL/wazuh-vuln-cve-summary-*/_search" \
-  -H 'Content-Type: application/json' \
-  -d '{"size":10,"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
-```
-
-CVE cÃ³ public PoC vÃ  Ä‘ang impact há»‡ thá»‘ng:
+CVE có public PoC và đang impact hệ thống:
 
 ```bash
 curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
@@ -556,59 +459,28 @@ curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
   -d '{"size":25,"query":{"bool":{"filter":[{"term":{"public_poc":true}},{"range":{"affected_hosts_count":{"gte":1}}}]}},"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
 ```
 
-Host bá»‹ áº£nh hÆ°á»Ÿng bá»Ÿi CVE cÃ³ public PoC:
+Host bị ảnh hưởng bởi CVE có public PoC:
 
 ```bash
 curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
-  "$WAZUH_INDEXER_URL/wazuh-vuln-enriched-*/_search" \
+  "$WAZUH_INDEXER_URL/wazuh-vuln-host-cve-impact-*/_search" \
   -H 'Content-Type: application/json' \
   -d '{"size":100,"query":{"term":{"public_poc":true}},"sort":[{"risk_score":"desc"}]}'
 ```
 
 ## Troubleshooting
 
-KhÃ´ng cÃ³ finding:
+- Không có findings: kiểm tra `wazuh-states-vulnerabilities-*`.
+- CISA bị chặn: set `CISA_KEV_FILE` trỏ tới local JSON mirror.
+- PoC không hiện: bật `POC_BUILD`, chạy `build-poc-feed`, rồi `enrich-all`.
+- Agent IP là `0.0.0.0`: chạy `debug-agent-ip`, kiểm tra inventory index có `agent.host.ip`, `host.ip`, `network.ip` hoặc field IP được discover.
+- Dashboard chậm: dùng summary index, không build trực tiếp trên raw Wazuh state index.
 
-- Kiá»ƒm tra index `wazuh-states-vulnerabilities-*`.
-- Kiá»ƒm tra Wazuh Vulnerability Detection Ä‘Ã£ báº­t index.
-
-CISA bá»‹ cháº·n:
-
-- Set `CISA_KEV_FILE` tá»›i JSON local.
-- Hoáº·c dÃ¹ng mirror ná»™i bá»™.
-
-PoC khÃ´ng hiá»‡n:
-
-- Báº­t `POC_BUILD.enabled: true` hoáº·c set `POC_FEED_FILE`.
-- Cháº¡y `python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-poc-feed`.
-- Cháº¡y `python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all`.
-- Kiá»ƒm tra field `public_poc:true` trong `wazuh-vuln-cve-summary-*`.
-
-Agent IP hiá»‡n `0.0.0.0`:
-
-- Cháº¡y `debug-agent-ip`, kiá»ƒm tra inventory index cÃ³ `agent.host.ip`, `host.ip`, `network.ip`, hoáº·c field IP khÃ¡c mÃ  tool discovery tÃ¬m Ä‘Æ°á»£c.
-- Cháº¡y láº¡i `enrich-all`.
-- Enricher sáº½ join cÃ¡c inventory index Ä‘Ã³ theo `agent.id` Ä‘á»ƒ láº¥y IP tháº­t.
-
-Query kiá»ƒm tra nhanh agent `002` báº±ng enricher:
+Debug IP agent:
 
 ```bash
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml debug-agent-ip --agent-id 002
 ```
-
-Query trá»±c tiáº¿p Wazuh Indexer tÆ°Æ¡ng Ä‘Æ°Æ¡ng:
-
-```bash
-curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
-  "$WAZUH_INDEXER_URL/wazuh-states-inventory-system-*,wazuh-states-inventory-interfaces-*,wazuh-states-inventory-networks-*/_search" \
-  -H 'Content-Type: application/json' \
-  -d '{"size":5,"query":{"term":{"agent.id":"002"}},"_source":["agent.id","agent.name","agent.host.ip","host.ip","network.*","related.ip","interface.*"]}'
-```
-
-Dashboard cháº­m:
-
-- Äáº£m báº£o panel Ä‘á»c summary index.
-- KhÃ´ng build dashboard trá»±c tiáº¿p trÃªn raw `wazuh-states-vulnerabilities-*`.
 
 ## Test
 
