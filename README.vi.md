@@ -413,6 +413,42 @@ Service gửi alert tổng hợp, không spam từng finding. Điều kiện ch�
 - CVE chuyển từ non-KEV sang KEV.
 - CVE ảnh hưởng nhiều agent.
 
+Config alert:
+
+```yaml
+ALERT_THRESHOLDS:
+  epss_high: 0.7
+  epss_medium: 0.3
+  cve_many_agents: 25
+  send_all_impacted_cves: false
+  send_all_alerts: false
+  max_top_cves: 10
+```
+
+`send_all_alerts: false` là mặc định cho production. Alert được dedup bằng `STATE_FILE`, nên cùng một CVE/key không bị gửi lại ở mỗi cycle.
+
+Khi muốn mọi CVE đang impact hệ thống đều đủ điều kiện alert, bật:
+
+```yaml
+ALERT_THRESHOLDS:
+  send_all_impacted_cves: true
+  max_top_cves: 0
+```
+
+Tùy chọn này vẫn chỉ dùng CVE từ Wazuh findings/enriched summaries, không gửi CVE global ngoài internet.
+
+Khi cần test hoặc review incident ngắn hạn, có thể bật gửi tất cả alert đủ điều kiện ở mỗi cycle:
+
+```yaml
+ALERT_THRESHOLDS:
+  send_all_alerts: true
+  max_top_cves: 0
+```
+
+Nếu muốn mỗi cycle đều gửi lại mọi CVE đang impact hệ thống, bật cả `send_all_impacted_cves: true` và `send_all_alerts: true`.
+
+`max_top_cves: 0` nghĩa là đưa toàn bộ CVE match điều kiện vào Telegram message. Cẩn thận khi bật trên môi trường lớn vì message có thể rất dài hoặc vượt giới hạn Telegram.
+
 Ví dụ:
 
 ```text

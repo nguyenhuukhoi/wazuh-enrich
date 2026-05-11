@@ -10,6 +10,12 @@ from state import StateStore
 LOG = logging.getLogger(__name__)
 
 
+def as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def finding_dedup_key(doc: dict[str, Any]) -> str:
     return "|".join(
         [
@@ -37,6 +43,8 @@ class AlertManager:
         self.state = state
         self.timeout = timeout
         self.dry_run = dry_run
+        self.send_all_alerts = as_bool(thresholds.get("send_all_alerts", False))
+        self.send_all_impacted_cves = as_bool(thresholds.get("send_all_impacted_cves", False))
 
     def process_cycle(self, enriched_docs: list[dict[str, Any]], cve_summaries: list[dict[str, Any]]) -> None:
         interesting = self._new_interesting_cves(cve_summaries)
@@ -54,9 +62,10 @@ class AlertManager:
         if not priority_docs:
             return
         key = f"new-agent|{agent_id}|baseline-p0-p1"
-        if self.state.was_alert_sent(key):
+        if not self.send_all_alerts and self.state.was_alert_sent(key):
             return
-        self.state.mark_alert_sent(key)
+        if not self.send_all_alerts:
+            self.state.mark_alert_sent(key)
         top = sorted(priority_docs, key=lambda doc: float(doc.get("risk_score", 0.0)), reverse=True)[:10]
         lines = [
             "CRITICAL - New agent baseline has high-risk CVEs",
@@ -87,6 +96,8 @@ class AlertManager:
             bucket_changed, _prev_bucket = self.state.update_epss_bucket(cve_id, epss_bucket(epss))
 
             keys = []
+            if self.send_all_impacted_cves and hosts > 0:
+                keys.append(f"cve-impacted|{cve_id}")
             if kev:
                 keys.append(f"cve-kev|{cve_id}|{kev}")
             if kev_transition:
@@ -100,6 +111,11 @@ class AlertManager:
             if hosts >= many_agents:
                 keys.append(f"cve-many-agents|{cve_id}|{hosts // many_agents}")
 
+            if self.send_all_alerts:
+                if keys:
+                    selected.append(cve)
+                continue
+
             new_keys = [key for key in keys if not self.state.was_alert_sent(key)]
             if new_keys:
                 for key in new_keys:
@@ -111,6 +127,7 @@ class AlertManager:
     def _format_critical_alert(self, cves: list[dict[str, Any]], enriched_docs: list[dict[str, Any]]) -> str:
         epss_high = float(self.thresholds.get("epss_high", 0.7))
         max_top = int(self.thresholds.get("max_top_cves", 10))
+        top_cves = cves if max_top <= 0 else cves[:max_top]
         cve_ids = {str(cve.get("cve_id", "")) for cve in cves}
         affected_agent_ids = {
             str(doc.get("agent_id"))
@@ -132,7 +149,7 @@ class AlertManager:
             "",
             "Top CVEs:",
         ]
-        lines.extend(self._format_summary_line(index + 1, cve) for index, cve in enumerate(cves[:max_top]))
+        lines.extend(self._format_summary_line(index + 1, cve) for index, cve in enumerate(top_cves))
         return "\n".join(lines)
 
     @staticmethod

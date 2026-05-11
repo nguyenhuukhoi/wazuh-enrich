@@ -447,6 +447,40 @@ The service sends aggregate alerts only for meaningful signals:
 - CVE transitions from non-KEV to KEV.
 - CVE affects many agents.
 
+Alert config:
+
+```yaml
+ALERT_THRESHOLDS:
+  epss_high: 0.7
+  epss_medium: 0.3
+  cve_many_agents: 25
+  send_all_impacted_cves: false
+  send_all_alerts: false
+  max_top_cves: 10
+```
+
+`send_all_alerts: false` is the production default. Alerts are deduplicated with `STATE_FILE`, so the same CVE/key is not sent every cycle.
+
+Set this when you want every CVE currently impacting your system to be alert-eligible. This still only uses CVEs from Wazuh findings/enriched summaries, not global internet CVEs:
+
+```yaml
+ALERT_THRESHOLDS:
+  send_all_impacted_cves: true
+  max_top_cves: 0
+```
+
+Set this when you want every eligible alert every cycle, for example during testing or a short incident review:
+
+```yaml
+ALERT_THRESHOLDS:
+  send_all_alerts: true
+  max_top_cves: 0
+```
+
+Use both when you want every currently impacted CVE sent on every cycle.
+
+`max_top_cves: 0` means include every matched CVE in the Telegram message. Be careful with this on large environments because Telegram messages can become noisy or exceed message limits.
+
 Example:
 
 ```text
