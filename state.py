@@ -16,6 +16,7 @@ DEFAULT_STATE: dict[str, Any] = {
     "last_epss_threshold_by_cve": {},
     "alert_dedup_keys": {},
     "feed_fingerprints": {},
+    "last_daily_full_refresh_index": None,
 }
 
 

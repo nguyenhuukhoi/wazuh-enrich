@@ -216,6 +216,18 @@ class WazuhIndexerClient:
         body = {"query": query or {"match_all": {}}}
         yield from self._scroll_sources(index, body, ignore_unavailable=True)
 
+    def index_doc_count(self, index: str) -> int | None:
+        try:
+            response = self.client.count(
+                index=index,
+                params={"ignore_unavailable": "true"},
+                request_timeout=self.settings.request_timeout_seconds,
+            )
+        except Exception as exc:
+            LOG.warning("index_count_failed index=%s error=%s", index, exc)
+            return None
+        return int(response.get("count", 0))
+
     def latest_inventory_timestamp(self, timestamp_fields: list[str]) -> str | None:
         index = ",".join([pattern for pattern in self.settings.agent_inventory_index_patterns if pattern])
         if not index:

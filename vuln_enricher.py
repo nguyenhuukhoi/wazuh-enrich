@@ -471,6 +471,28 @@ def run_once(settings: Settings, dry_run: bool = False, dry_run_send_alerts: boo
         state.save()
 
 
+def current_enriched_index(settings: Settings, client: WazuhIndexerClient) -> str:
+    return client.index_name(settings.enriched_index_prefix)
+
+
+def mark_daily_full_refresh(settings: Settings, client: WazuhIndexerClient, state: StateStore) -> None:
+    state.data["last_daily_full_refresh_index"] = current_enriched_index(settings, client)
+
+
+def daily_full_refresh_required(settings: Settings, client: WazuhIndexerClient, state: StateStore) -> tuple[bool, str, int | None]:
+    enriched_index = current_enriched_index(settings, client)
+    if state.data.get("last_daily_full_refresh_index") == enriched_index:
+        return False, enriched_index, None
+
+    count = client.index_doc_count(enriched_index)
+    if count is None:
+        return False, enriched_index, None
+    if count > 0:
+        state.data["last_daily_full_refresh_index"] = enriched_index
+        return False, enriched_index, count
+    return True, enriched_index, count
+
+
 def daemon(config_path: str, settings: Settings, dry_run: bool = False, dry_run_send_alerts: bool = False) -> None:
     global RELOAD_REQUESTED
     state = StateStore(settings.state_file)
@@ -540,12 +562,21 @@ def daemon(config_path: str, settings: Settings, dry_run: bool = False, dry_run_
                 LOG.info("feed_change_detected full_refresh=true")
                 enrich(settings, client, state, full=True, dry_run=dry_run, dry_run_send_alerts=dry_run_send_alerts)
                 state.data["feed_fingerprints"] = after
+                mark_daily_full_refresh(settings, client, state)
                 last_run["full_refresh_seconds"] = now
                 last_run["enrichment_seconds"] = now
             if now - last_run["full_refresh_seconds"] >= schedule["full_refresh_seconds"]:
                 LOG.info("scheduled_full_refresh_started")
                 enrich(settings, client, state, full=True, dry_run=dry_run, dry_run_send_alerts=dry_run_send_alerts)
                 state.data["feed_fingerprints"] = feed_sync.fingerprints()
+                mark_daily_full_refresh(settings, client, state)
+                last_run["full_refresh_seconds"] = now
+                last_run["enrichment_seconds"] = now
+            required, enriched_index, doc_count = daily_full_refresh_required(settings, client, state)
+            if required:
+                LOG.info("daily_enriched_index_empty full_refresh=true index=%s docs=%s", enriched_index, doc_count)
+                enrich(settings, client, state, full=True, dry_run=dry_run, dry_run_send_alerts=dry_run_send_alerts)
+                mark_daily_full_refresh(settings, client, state)
                 last_run["full_refresh_seconds"] = now
                 last_run["enrichment_seconds"] = now
             if now - last_run["enrichment_seconds"] >= schedule["enrichment_seconds"]:

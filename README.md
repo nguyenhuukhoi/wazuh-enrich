@@ -34,6 +34,7 @@ Daemon mode automatically:
 - Re-enriches only changed agents and incrementally updates the affected host/CVE summaries.
 - Runs incremental enrichment every 15 minutes.
 - Runs full refresh every 24 hours or when feed fingerprints change.
+- Runs one automatic full refresh when the current daily enriched index is empty.
 - Detects new agents every 5 minutes.
 
 ## Created Indices
@@ -69,11 +70,32 @@ Feed update      -> full refresh
 Daily fallback   -> full refresh
 ```
 
+The daily fallback exists because the enriched indices are date-based. After midnight, `wazuh-vuln-enriched-YYYY.MM.DD` is a new index. If the daemon sees that today's enriched index has no documents and it has not already refreshed that index, it runs one full refresh and records the index name in `STATE_FILE` as `last_daily_full_refresh_index`.
+
+Example:
+
+```json
+{
+  "last_daily_full_refresh_index": "wazuh-vuln-enriched-2026.05.12"
+}
+```
+
+This state key means: "the daemon already ran the once-per-day fallback full refresh for this daily index." On the next daemon loop, if the same index is still empty, the daemon will not run another full refresh. This matters because a healthy system can genuinely have zero vulnerability findings; without this guard, the daemon would see an empty index every loop and repeatedly full refresh Wazuh Indexer.
+
+Daily fallback decision:
+
+```text
+Today's enriched index is empty + not marked in state -> run full refresh once
+Today's enriched index is empty + already marked       -> skip full refresh
+New day, new index name                                -> allow one fallback full refresh again
+```
+
 The inventory watcher uses a watermark in `STATE_FILE`:
 
 ```text
 last_inventory_timestamp
 pending_inventory_agents
+last_daily_full_refresh_index
 ```
 
 It does not continuously query every agent. It queries inventory indices by timestamp, extracts changed `agent.id` values, then processes due agents in bounded batches.

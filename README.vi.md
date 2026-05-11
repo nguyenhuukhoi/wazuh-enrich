@@ -33,6 +33,7 @@ Daemon tự làm:
 - Chờ 180 giây trước khi xử lý agent đã đổi để Wazuh kịp cập nhật vulnerability state.
 - Chỉ enrich lại agent đã đổi và update incremental các summary bị ảnh hưởng.
 - Full refresh mỗi 24 giờ hoặc khi feed fingerprint đổi.
+- Tự full refresh một lần khi daily enriched index của ngày hiện tại chưa có document.
 - Detect agent mới mỗi 5 phút.
 
 ## Index Được Tạo
@@ -68,11 +69,32 @@ Feed update      -> full refresh
 Daily fallback   -> full refresh
 ```
 
+Daily fallback cần vì enriched index được tách theo ngày. Sau 00:00, `wazuh-vuln-enriched-YYYY.MM.DD` là index mới. Nếu daemon thấy index hôm nay chưa có document và chưa từng refresh index đó, nó sẽ chạy full refresh một lần rồi lưu tên index vào `STATE_FILE` bằng key `last_daily_full_refresh_index`.
+
+Ví dụ:
+
+```json
+{
+  "last_daily_full_refresh_index": "wazuh-vuln-enriched-2026.05.12"
+}
+```
+
+State key này có nghĩa là: "daemon đã chạy fallback full refresh một lần cho daily index này rồi". Ở vòng loop sau, nếu index đó vẫn rỗng, daemon sẽ không chạy full refresh lại nữa. Việc này cần thiết vì có trường hợp hệ thống thật sự không có vulnerability finding; nếu không có guard này, daemon sẽ thấy index rỗng ở mỗi vòng loop và full refresh Wazuh Indexer liên tục.
+
+Quyết định daily fallback:
+
+```text
+Index enriched hôm nay rỗng + chưa mark trong state -> chạy full refresh một lần
+Index enriched hôm nay rỗng + đã mark rồi           -> bỏ qua full refresh
+Sang ngày mới, index name đổi                       -> cho phép fallback full refresh một lần nữa
+```
+
 Inventory watcher lưu watermark trong `STATE_FILE`:
 
 ```text
 last_inventory_timestamp
 pending_inventory_agents
+last_daily_full_refresh_index
 ```
 
 Nó không query từng agent liên tục. Nó query inventory index theo timestamp, lấy danh sách `agent.id` đã đổi, rồi xử lý theo batch có giới hạn.
