@@ -80,6 +80,12 @@ ALERT_THRESHOLDS:
   epss_high: 0.7
   epss_medium: 0.3
   cve_many_agents: 25
+  # Which CVE group Telegram should alert on:
+  # critical_real_impact = vendor confirms impact and exploit signal exists (default)
+  # needs_review = high-threat CVEs where vendor/package confirmation is incomplete
+  # patch_scheduled = vendor confirms affected but patch can be planned
+  # all = include all alert-eligible CVEs
+  alert_scope: critical_real_impact
   # true = every active CVE that affects at least one current agent is alert-eligible.
   send_all_impacted_cves: false
   # false = dedup alert by state file. true = send every eligible alert every cycle.

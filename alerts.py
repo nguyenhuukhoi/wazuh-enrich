@@ -16,6 +16,7 @@ PATCH_DECISION_ORDER = {
     "monitor": 3,
     "no_action": 4,
 }
+ALERT_SCOPES = {"critical_real_impact", "needs_review", "patch_scheduled", "all"}
 
 
 def as_bool(value: Any) -> bool:
@@ -64,6 +65,10 @@ class AlertManager:
         self.send_all_impacted_cves = as_bool(thresholds.get("send_all_impacted_cves", False))
         self.public_poc_only = as_bool(thresholds.get("public_poc_only", False))
         self.alert_interval_seconds = as_int(thresholds.get("alert_interval_seconds", 0), 0)
+        self.alert_scope = str(thresholds.get("alert_scope", "critical_real_impact")).strip().lower()
+        if self.alert_scope not in ALERT_SCOPES:
+            LOG.warning("invalid_alert_scope scope=%s fallback=critical_real_impact", self.alert_scope)
+            self.alert_scope = "critical_real_impact"
 
     def process_cycle(self, enriched_docs: list[dict[str, Any]], cve_summaries: list[dict[str, Any]]) -> None:
         if self._cycle_alert_throttled():
@@ -128,6 +133,8 @@ class AlertManager:
             if self.public_poc_only and not cve.get("public_poc"):
                 continue
             cve_id = str(cve.get("cve_id", ""))
+            if not self._scope_matches(cve, epss_high):
+                continue
             kev = bool(cve.get("kev"))
             epss = float(cve.get("epss_score", 0.0))
             priority = cve.get("priority")
@@ -137,6 +144,8 @@ class AlertManager:
             bucket_changed, _prev_bucket = self.state.update_epss_bucket(cve_id, epss_bucket(epss))
 
             keys = []
+            if self.alert_scope != "all":
+                keys.append(f"cve-scope|{self.alert_scope}|{cve_id}")
             if self.send_all_impacted_cves and hosts > 0:
                 keys.append(f"cve-impacted|{cve_id}")
             if kev:
@@ -185,9 +194,10 @@ class AlertManager:
         affected_label = "Affected agents" if affected_agent_ids else "Affected host-CVE pairs"
         affected_value = len(affected_agent_ids) if affected_agent_ids else affected_fallback
         lines = [
-            "CRITICAL - Dangerous CVEs impacting system",
+            f"CRITICAL - {self._scope_label()} CVEs impacting system",
             "",
             "Summary:",
+            f"- Alert scope: {self.alert_scope}",
             f"- {affected_label}: {affected_value}",
             f"- Patch now CVEs: {len([cve for cve in cves if cve.get('patch_decision') == 'patch_now'])}",
             f"- Needs review CVEs: {len([cve for cve in cves if cve.get('patch_decision') == 'needs_review'])}",
@@ -202,6 +212,40 @@ class AlertManager:
         ]
         lines.extend(self._format_summary_line(index + 1, cve) for index, cve in enumerate(top_cves))
         return "\n".join(lines)
+
+    def _scope_matches(self, cve: dict[str, Any], epss_high: float) -> bool:
+        if self.alert_scope == "all":
+            return True
+
+        patch = str(cve.get("patch_decision", ""))
+        verification = str(cve.get("verification_status", ""))
+        exploitability = str(cve.get("exploitability_status", ""))
+        epss = float(cve.get("epss_score", 0.0))
+        has_exploit_signal = exploitability == "exploited_in_wild" or bool(cve.get("public_poc")) or epss >= epss_high
+
+        if self.alert_scope == "critical_real_impact":
+            return (
+                patch == "patch_now"
+                and verification in {"confirmed_affected", "likely_affected"}
+                and has_exploit_signal
+            )
+        if self.alert_scope == "needs_review":
+            return patch == "needs_review" or (
+                verification in {"vendor_not_found", "needs_manual_check", "not_verified"}
+                and (bool(cve.get("kev")) or bool(cve.get("public_poc")) or epss >= epss_high)
+            )
+        if self.alert_scope == "patch_scheduled":
+            return patch == "patch_scheduled"
+        return False
+
+    def _scope_label(self) -> str:
+        labels = {
+            "critical_real_impact": "Critical Real Impact",
+            "needs_review": "Needs Review",
+            "patch_scheduled": "Patch Scheduled",
+            "all": "Dangerous",
+        }
+        return labels.get(self.alert_scope, "Critical Real Impact")
 
     @staticmethod
     def _format_summary_line(index: int, cve: dict[str, Any]) -> str:

@@ -8,7 +8,17 @@ ENRICHED = "wazuh-vuln-enriched-pattern"
 CVE_SUMMARY = "wazuh-vuln-cve-summary-pattern"
 HOST_SUMMARY = "wazuh-vuln-host-summary-pattern"
 HOST_CVE_IMPACT = "wazuh-vuln-host-cve-impact-pattern"
-DANGEROUS_IMPACT_QUERY = "patch_decision:patch_now or patch_decision:needs_review or kev:true or public_poc:true or epss_score >= 0.7"
+CRITICAL_REAL_IMPACT_QUERY = (
+    "patch_decision:patch_now and "
+    "(verification_status:confirmed_affected or verification_status:likely_affected) and "
+    "(exploitability_status:exploited_in_wild or public_poc:true or epss_score >= 0.7)"
+)
+NEEDS_REVIEW_QUERY = (
+    "patch_decision:needs_review or "
+    "((verification_status:vendor_not_found or verification_status:needs_manual_check or verification_status:not_verified) "
+    "and (kev:true or public_poc:true or epss_score >= 0.7))"
+)
+PATCH_SCHEDULED_QUERY = "patch_decision:patch_scheduled"
 
 
 def dumps(value: Any) -> str:
@@ -317,14 +327,22 @@ def dashboard_object() -> dict[str, Any]:
         )
 
     add("vis-impact-controls", "visualization", 0, 0, 48, 8)
-    add("search-public-poc", "search", 0, 8, 24, 18)
-    add("search-public-poc-hosts", "search", 24, 8, 24, 18)
+    add("search-critical-real-impact", "search", 0, 8, 48, 14)
+    add("search-critical-real-impact-hosts", "search", 0, 22, 48, 14)
+    add("search-needs-review", "search", 0, 36, 48, 14)
+    add("search-needs-review-hosts", "search", 0, 50, 48, 14)
+    add("search-patch-scheduled", "search", 0, 64, 48, 14)
+    add("search-patch-scheduled-hosts", "search", 0, 78, 48, 14)
 
     references = []
     panel_ids = [
         ("vis-impact-controls", "visualization"),
-        ("search-public-poc", "search"),
-        ("search-public-poc-hosts", "search"),
+        ("search-critical-real-impact", "search"),
+        ("search-critical-real-impact-hosts", "search"),
+        ("search-needs-review", "search"),
+        ("search-needs-review-hosts", "search"),
+        ("search-patch-scheduled", "search"),
+        ("search-patch-scheduled-hosts", "search"),
     ]
     for index, (panel_id, panel_type) in enumerate(panel_ids, start=1):
         references.append({"name": f"panel_{index}", "type": panel_type, "id": panel_id})
@@ -406,21 +424,55 @@ def build_objects() -> list[dict[str, Any]]:
         index_pattern(HOST_CVE_IMPACT, "wazuh-vuln-host-cve-impact-*", "updated_at"),
         controls_vis("vis-impact-controls", "Impact Filters", HOST_CVE_IMPACT),
         saved_search(
-            "search-public-poc",
-            "Dangerous CVEs Impacting This System",
+            "search-critical-real-impact",
+            "Critical Real Impact CVEs",
             CVE_SUMMARY,
             poc_columns,
             "risk_score",
-            query=DANGEROUS_IMPACT_QUERY,
+            query=CRITICAL_REAL_IMPACT_QUERY,
             filters=[range_filter("affected_hosts_count", 1, CVE_SUMMARY)],
         ),
         saved_search(
-            "search-public-poc-hosts",
-            "Hosts Affected by Dangerous CVEs",
+            "search-critical-real-impact-hosts",
+            "Hosts - Critical Real Impact",
             HOST_CVE_IMPACT,
             poc_host_columns,
             "risk_score",
-            query=DANGEROUS_IMPACT_QUERY,
+            query=CRITICAL_REAL_IMPACT_QUERY,
+        ),
+        saved_search(
+            "search-needs-review",
+            "Needs Review CVEs",
+            CVE_SUMMARY,
+            poc_columns,
+            "risk_score",
+            query=NEEDS_REVIEW_QUERY,
+            filters=[range_filter("affected_hosts_count", 1, CVE_SUMMARY)],
+        ),
+        saved_search(
+            "search-needs-review-hosts",
+            "Hosts - Needs Review",
+            HOST_CVE_IMPACT,
+            poc_host_columns,
+            "risk_score",
+            query=NEEDS_REVIEW_QUERY,
+        ),
+        saved_search(
+            "search-patch-scheduled",
+            "Patch Scheduled CVEs",
+            CVE_SUMMARY,
+            poc_columns,
+            "risk_score",
+            query=PATCH_SCHEDULED_QUERY,
+            filters=[range_filter("affected_hosts_count", 1, CVE_SUMMARY)],
+        ),
+        saved_search(
+            "search-patch-scheduled-hosts",
+            "Hosts - Patch Scheduled",
+            HOST_CVE_IMPACT,
+            poc_host_columns,
+            "risk_score",
+            query=PATCH_SCHEDULED_QUERY,
         ),
         dashboard_object(),
     ]

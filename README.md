@@ -498,11 +498,21 @@ ALERT_THRESHOLDS:
   epss_high: 0.7
   epss_medium: 0.3
   cve_many_agents: 25
+  alert_scope: critical_real_impact
   send_all_impacted_cves: false
   send_all_alerts: false
   public_poc_only: false
   alert_interval_seconds: 0
   max_top_cves: 10
+```
+
+`alert_scope` selects which operational group Telegram sends. Default is `critical_real_impact`.
+
+```text
+critical_real_impact -> patch_now + vendor confirmed/likely affected + exploit signal
+needs_review         -> high-threat CVEs where vendor/package confirmation is incomplete
+patch_scheduled      -> vendor confirmed affected, patch should be planned
+all                  -> all alert-eligible CVEs
 ```
 
 `send_all_alerts: false` is the production default. Alerts are deduplicated with `STATE_FILE`, so the same CVE/key is not sent every cycle.
@@ -531,6 +541,7 @@ Use `public_poc_only: true` when you only want CVEs with public PoC metadata in 
 ALERT_THRESHOLDS:
   send_all_impacted_cves: true
   send_all_alerts: true
+  alert_scope: critical_real_impact
   public_poc_only: true
   alert_interval_seconds: 3600
   max_top_cves: 0
@@ -545,9 +556,10 @@ This option does not create a separate alert scheduler. Alerts are evaluated whe
 Example:
 
 ```text
-CRITICAL - Dangerous CVEs impacting system
+CRITICAL - Critical Real Impact CVEs impacting system
 
 Summary:
+- Alert scope: critical_real_impact
 - Affected agents: 2
 - Patch now CVEs: 2
 - Needs review CVEs: 1
@@ -575,8 +587,9 @@ wazuh-vuln-host-cve-impact-* time field: updated_at
 The imported dashboard intentionally contains only the operational panels:
 
 - Impact Filters.
-- Dangerous CVEs Impacting This System.
-- Hosts Affected by Dangerous CVEs.
+- Critical Real Impact CVEs and hosts.
+- Needs Review CVEs and hosts.
+- Patch Scheduled CVEs and hosts.
 
 Dashboard import is optional and separate from enrichment:
 
@@ -598,32 +611,42 @@ Those fields are written only for CVEs that Wazuh has detected on your agents, s
 The imported controls use the `.keyword` subfields for terms aggregation.
 The enriched data view uses `enriched_at` as its time field so host impact tables show the latest enrichment state instead of hiding older findings by `detected_at`.
 
-The CVE summary panel reads `wazuh-vuln-cve-summary-*` with:
+The dashboard splits CVEs into three operational groups:
 
 ```text
-affected_hosts_count > 0 and (patch_decision:patch_now or patch_decision:needs_review or kev:true or public_poc:true or epss_score >= 0.7)
+Critical Real Impact:
+patch_decision:patch_now
+and vendor confirmed/likely affected
+and exploited_in_wild or public_poc:true or epss_score >= 0.7
+
+Needs Review:
+patch_decision:needs_review
+or vendor confirmation is incomplete while KEV/public PoC/EPSS-high is present
+
+Patch Scheduled:
+patch_decision:patch_scheduled
 ```
 
-This shows dangerous CVEs that Wazuh has actually detected on your agents, not a global internet CVE list.
+These show only CVEs that Wazuh has actually detected on your agents, not a global internet CVE list.
 
 ## Quick Checks
 
-Dangerous CVEs impacting this system:
+Critical Real Impact CVEs:
 
 ```bash
 curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
   "$WAZUH_INDEXER_URL/wazuh-vuln-cve-summary-*/_search" \
   -H 'Content-Type: application/json' \
-  -d '{"size":25,"query":{"bool":{"should":[{"term":{"patch_decision":"patch_now"}},{"term":{"patch_decision":"needs_review"}},{"term":{"kev":true}},{"term":{"public_poc":true}},{"range":{"epss_score":{"gte":0.7}}}],"minimum_should_match":1,"filter":[{"range":{"affected_hosts_count":{"gte":1}}}]}},"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
+  -d '{"size":25,"query":{"bool":{"filter":[{"term":{"patch_decision":"patch_now"}},{"terms":{"verification_status":["confirmed_affected","likely_affected"]}},{"range":{"affected_hosts_count":{"gte":1}}}],"should":[{"term":{"exploitability_status":"exploited_in_wild"}},{"term":{"public_poc":true}},{"range":{"epss_score":{"gte":0.7}}}],"minimum_should_match":1}},"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
 ```
 
-Hosts affected by dangerous CVEs:
+Needs Review CVEs:
 
 ```bash
 curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
-  "$WAZUH_INDEXER_URL/wazuh-vuln-host-cve-impact-*/_search" \
+  "$WAZUH_INDEXER_URL/wazuh-vuln-cve-summary-*/_search" \
   -H 'Content-Type: application/json' \
-  -d '{"size":100,"query":{"bool":{"should":[{"term":{"patch_decision":"patch_now"}},{"term":{"patch_decision":"needs_review"}},{"term":{"kev":true}},{"term":{"public_poc":true}},{"range":{"epss_score":{"gte":0.7}}}],"minimum_should_match":1}},"sort":[{"risk_score":"desc"}]}'
+  -d '{"size":25,"query":{"bool":{"filter":[{"range":{"affected_hosts_count":{"gte":1}}}],"should":[{"term":{"patch_decision":"needs_review"}},{"bool":{"filter":[{"terms":{"verification_status":["vendor_not_found","needs_manual_check","not_verified"]}}],"should":[{"term":{"kev":true}},{"term":{"public_poc":true}},{"range":{"epss_score":{"gte":0.7}}}],"minimum_should_match":1}}],"minimum_should_match":1}},"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
 ```
 
 ## Troubleshooting

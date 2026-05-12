@@ -59,7 +59,8 @@ def test_alert_dedup_for_same_cve(tmp_path):
     manager.process_cycle(enriched_docs, cve_summary)
 
     assert len(manager.messages) == 1
-    assert "CRITICAL - Dangerous CVEs impacting system" in manager.messages[0]
+    assert "CRITICAL - Critical Real Impact CVEs impacting system" in manager.messages[0]
+    assert "- Alert scope: critical_real_impact" in manager.messages[0]
     assert "- Affected agents: 2" in manager.messages[0]
     assert "- Affected agents: 72" not in manager.messages[0]
     assert "- Public PoC CVEs: 1" in manager.messages[0]
@@ -88,6 +89,9 @@ def test_alert_summary_fallback_names_host_cve_pairs(tmp_path):
             "cvss_score": 9.8,
             "affected_hosts_count": 72,
             "affected_packages": ["openssl"],
+            "patch_decision": "patch_now",
+            "verification_status": "confirmed_affected",
+            "exploitability_status": "exploited_in_wild",
             "risk_score": 106.4,
         }
     ]
@@ -102,7 +106,7 @@ def test_send_all_alerts_bypasses_dedup(tmp_path):
     manager = CapturingAlertManager(
         bot_token="",
         chat_id="",
-        thresholds={"epss_high": 0.7, "send_all_alerts": True, "max_top_cves": 10},
+        thresholds={"epss_high": 0.7, "send_all_alerts": True, "alert_scope": "all", "max_top_cves": 10},
         state=state,
     )
     cve_summary = [
@@ -129,7 +133,7 @@ def test_send_all_impacted_cves_alerts_active_cves_even_without_risk_threshold(t
     manager = CapturingAlertManager(
         bot_token="",
         chat_id="",
-        thresholds={"send_all_impacted_cves": True, "max_top_cves": 10},
+        thresholds={"send_all_impacted_cves": True, "alert_scope": "all", "max_top_cves": 10},
         state=state,
     )
     cve_summary = [
@@ -152,6 +156,116 @@ def test_send_all_impacted_cves_alerts_active_cves_even_without_risk_threshold(t
     assert "CVE-2026-LOW1" in manager.messages[0]
 
 
+def test_default_alert_scope_only_sends_critical_real_impact(tmp_path):
+    state = StateStore(tmp_path / "state.json")
+    manager = CapturingAlertManager(
+        bot_token="",
+        chat_id="",
+        thresholds={"send_all_alerts": True, "send_all_impacted_cves": True},
+        state=state,
+    )
+    cve_summary = [
+        {
+            "cve_id": "CVE-2026-CRITICAL",
+            "priority": "P0",
+            "patch_decision": "patch_now",
+            "verification_status": "confirmed_affected",
+            "exploitability_status": "exploited_in_wild",
+            "kev": True,
+            "public_poc": False,
+            "epss_score": 0.01,
+            "cvss_score": 7.8,
+            "affected_hosts_count": 1,
+            "affected_packages": ["kernel"],
+            "risk_score": 80,
+        },
+        {
+            "cve_id": "CVE-2026-REVIEW",
+            "priority": "P0",
+            "patch_decision": "needs_review",
+            "verification_status": "vendor_not_found",
+            "exploitability_status": "exploited_in_wild",
+            "kev": True,
+            "public_poc": False,
+            "epss_score": 0.01,
+            "cvss_score": 7.8,
+            "affected_hosts_count": 1,
+            "affected_packages": ["kernel"],
+            "risk_score": 70,
+        },
+    ]
+
+    manager.process_cycle([{"cve_id": "CVE-2026-CRITICAL", "agent_id": "001"}], cve_summary)
+
+    assert len(manager.messages) == 1
+    assert "CVE-2026-CRITICAL" in manager.messages[0]
+    assert "CVE-2026-REVIEW" not in manager.messages[0]
+
+
+def test_needs_review_alert_scope_only_sends_review_group(tmp_path):
+    state = StateStore(tmp_path / "state.json")
+    manager = CapturingAlertManager(
+        bot_token="",
+        chat_id="",
+        thresholds={"alert_scope": "needs_review"},
+        state=state,
+    )
+    cve_summary = [
+        {
+            "cve_id": "CVE-2026-REVIEW",
+            "priority": "P0",
+            "patch_decision": "needs_review",
+            "verification_status": "vendor_not_found",
+            "exploitability_status": "exploited_in_wild",
+            "kev": True,
+            "public_poc": False,
+            "epss_score": 0.01,
+            "cvss_score": 7.8,
+            "affected_hosts_count": 1,
+            "affected_packages": ["kernel"],
+            "risk_score": 70,
+        }
+    ]
+
+    manager.process_cycle([{"cve_id": "CVE-2026-REVIEW", "agent_id": "001"}], cve_summary)
+
+    assert len(manager.messages) == 1
+    assert "- Alert scope: needs_review" in manager.messages[0]
+    assert "CVE-2026-REVIEW" in manager.messages[0]
+
+
+def test_patch_scheduled_alert_scope_only_sends_scheduled_group(tmp_path):
+    state = StateStore(tmp_path / "state.json")
+    manager = CapturingAlertManager(
+        bot_token="",
+        chat_id="",
+        thresholds={"alert_scope": "patch_scheduled"},
+        state=state,
+    )
+    cve_summary = [
+        {
+            "cve_id": "CVE-2026-SCHEDULED",
+            "priority": "P2",
+            "patch_decision": "patch_scheduled",
+            "verification_status": "confirmed_affected",
+            "exploitability_status": "no_known_exploit",
+            "kev": False,
+            "public_poc": False,
+            "epss_score": 0.01,
+            "cvss_score": 6.8,
+            "affected_hosts_count": 1,
+            "affected_packages": ["openssl"],
+            "risk_score": 20,
+        }
+    ]
+
+    manager.process_cycle([{"cve_id": "CVE-2026-SCHEDULED", "agent_id": "001"}], cve_summary)
+
+    assert len(manager.messages) == 1
+    assert "- Alert scope: patch_scheduled" in manager.messages[0]
+    assert "CVE-2026-SCHEDULED" in manager.messages[0]
+
+
 def test_public_poc_only_filters_alert_cves(tmp_path):
     state = StateStore(tmp_path / "state.json")
     manager = CapturingAlertManager(
@@ -161,6 +275,7 @@ def test_public_poc_only_filters_alert_cves(tmp_path):
             "send_all_alerts": True,
             "send_all_impacted_cves": True,
             "public_poc_only": True,
+            "alert_scope": "all",
             "max_top_cves": 10,
         },
         state=state,
@@ -209,7 +324,7 @@ def test_max_top_cves_zero_includes_all_cves(tmp_path):
     manager = CapturingAlertManager(
         bot_token="",
         chat_id="",
-        thresholds={"send_all_alerts": True, "max_top_cves": 0},
+        thresholds={"send_all_alerts": True, "alert_scope": "all", "max_top_cves": 0},
         state=state,
     )
     cve_summary = [
@@ -246,7 +361,7 @@ def test_alert_interval_sends_first_cycle_then_skips_until_elapsed(tmp_path):
     manager = CapturingAlertManager(
         bot_token="",
         chat_id="",
-        thresholds={"send_all_alerts": True, "alert_interval_seconds": 3600},
+        thresholds={"send_all_alerts": True, "alert_scope": "all", "alert_interval_seconds": 3600},
         state=state,
     )
     cve_summary = [
@@ -275,7 +390,7 @@ def test_alert_interval_allows_cycle_after_elapsed(tmp_path):
     manager = CapturingAlertManager(
         bot_token="",
         chat_id="",
-        thresholds={"send_all_alerts": True, "alert_interval_seconds": 1},
+        thresholds={"send_all_alerts": True, "alert_scope": "all", "alert_interval_seconds": 1},
         state=state,
     )
     cve_summary = [
@@ -301,7 +416,7 @@ def test_alert_interval_zero_keeps_send_all_behavior(tmp_path):
     manager = CapturingAlertManager(
         bot_token="",
         chat_id="",
-        thresholds={"send_all_alerts": True, "alert_interval_seconds": 0},
+        thresholds={"send_all_alerts": True, "alert_scope": "all", "alert_interval_seconds": 0},
         state=state,
     )
     cve_summary = [

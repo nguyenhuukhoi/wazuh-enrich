@@ -18,14 +18,18 @@ Import:
 dashboard/wazuh-vuln-enrichment.ndjson
 ```
 
-The import creates 7 saved objects:
+The import creates 11 saved objects:
 
 - Data view: `wazuh-vuln-cve-summary-*`
 - Data view: `wazuh-vuln-enriched-*` with time field `enriched_at`
 - Data view: `wazuh-vuln-host-cve-impact-*`
 - Visualization: `Impact Filters`
-- Search: `Dangerous CVEs Impacting This System`
-- Search: `Hosts Affected by Dangerous CVEs`
+- Search: `Critical Real Impact CVEs`
+- Search: `Hosts - Critical Real Impact`
+- Search: `Needs Review CVEs`
+- Search: `Hosts - Needs Review`
+- Search: `Patch Scheduled CVEs`
+- Search: `Hosts - Patch Scheduled`
 - Dashboard: `Wazuh Vulnerability Enrichment Overview`
 
 Rebuild the NDJSON after editing definitions:
@@ -76,14 +80,40 @@ Controls:
 
 These fields come from `wazuh-vuln-host-cve-impact-*`, which has one row per impacted CVE/host pair.
 
-### Dangerous CVEs Impacting This System
+### Critical Real Impact
 
 Data view: `wazuh-vuln-cve-summary-*`
 
 Filters:
 
 - `affected_hosts_count >= 1`
-- query: `patch_decision:patch_now or patch_decision:needs_review or kev:true or public_poc:true or epss_score >= 0.7`
+- query: `patch_decision:patch_now and (verification_status:confirmed_affected or verification_status:likely_affected) and (exploitability_status:exploited_in_wild or public_poc:true or epss_score >= 0.7)`
+
+This is the default alert scope. It means vendor confirms impact and there is an exploit signal.
+
+### Needs Review
+
+Data view: `wazuh-vuln-cve-summary-*`
+
+Filters:
+
+- `affected_hosts_count >= 1`
+- query: `patch_decision:needs_review or ((verification_status:vendor_not_found or verification_status:needs_manual_check or verification_status:not_verified) and (kev:true or public_poc:true or epss_score >= 0.7))`
+
+This means the CVE has a strong threat signal, but vendor/package confirmation is incomplete.
+
+### Patch Scheduled
+
+Data view: `wazuh-vuln-cve-summary-*`
+
+Filters:
+
+- `affected_hosts_count >= 1`
+- query: `patch_decision:patch_scheduled`
+
+This means vendor confirms affected and patching should be planned, but it is not classified as immediate critical impact.
+
+### Columns
 
 Columns:
 
@@ -111,13 +141,17 @@ Columns:
 - `reason`
 - `recommended_action`
 
-### Hosts Affected By Dangerous CVEs
+### Host Tables
 
 Data view: `wazuh-vuln-host-cve-impact-*`
 
-Query:
+The three host tables mirror the same three CVE groups:
 
-- `patch_decision:patch_now or patch_decision:needs_review or kev:true or public_poc:true or epss_score >= 0.7`
+- `Hosts - Critical Real Impact`
+- `Hosts - Needs Review`
+- `Hosts - Patch Scheduled`
+
+Each search panel is full-width on its own row so long fields such as `recommended_action`, `vendor_advisory_url`, and package lists stay readable.
 
 Columns:
 

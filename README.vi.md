@@ -464,11 +464,21 @@ ALERT_THRESHOLDS:
   epss_high: 0.7
   epss_medium: 0.3
   cve_many_agents: 25
+  alert_scope: critical_real_impact
   send_all_impacted_cves: false
   send_all_alerts: false
   public_poc_only: false
   alert_interval_seconds: 0
   max_top_cves: 10
+```
+
+`alert_scope` chọn nhóm CVE mà Telegram sẽ gửi. Mặc định là `critical_real_impact`.
+
+```text
+critical_real_impact -> patch_now + vendor confirmed/likely affected + có exploit signal
+needs_review         -> CVE có threat cao nhưng vendor/package confirmation chưa đủ
+patch_scheduled      -> vendor xác nhận affected, nên lên lịch patch
+all                  -> mọi CVE đủ điều kiện alert
 ```
 
 `send_all_alerts: false` là mặc định cho production. Alert được dedup bằng `STATE_FILE`, nên cùng một CVE/key không bị gửi lại ở mỗi cycle.
@@ -499,6 +509,7 @@ Dùng `public_poc_only: true` khi bạn chỉ muốn alert những CVE có publi
 ALERT_THRESHOLDS:
   send_all_impacted_cves: true
   send_all_alerts: true
+  alert_scope: critical_real_impact
   public_poc_only: true
   alert_interval_seconds: 3600
   max_top_cves: 0
@@ -513,9 +524,10 @@ Option này không tạo scheduler alert riêng. Alert chỉ được evaluate k
 Ví dụ:
 
 ```text
-CRITICAL - Dangerous CVEs impacting system
+CRITICAL - Critical Real Impact CVEs impacting system
 
 Summary:
+- Alert scope: critical_real_impact
 - Affected agents: 2
 - Patch now CVEs: 2
 - Needs review CVEs: 1
@@ -549,27 +561,28 @@ python3 dashboard/manage_saved_objects.py reimport --no-verify-ssl
 Dashboard hiện có:
 
 - Impact Filters.
-- Dangerous CVEs Impacting This System.
-- Hosts Affected by Dangerous CVEs.
+- Critical Real Impact CVEs và host.
+- Needs Review CVEs và host.
+- Patch Scheduled CVEs và host.
 
 ## Kiểm Tra Nhanh
 
-CVE nguy hiểm và đang impact hệ thống:
+Critical Real Impact CVEs:
 
 ```bash
 curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
   "$WAZUH_INDEXER_URL/wazuh-vuln-cve-summary-*/_search" \
   -H 'Content-Type: application/json' \
-  -d '{"size":25,"query":{"bool":{"should":[{"term":{"patch_decision":"patch_now"}},{"term":{"patch_decision":"needs_review"}},{"term":{"kev":true}},{"term":{"public_poc":true}},{"range":{"epss_score":{"gte":0.7}}}],"minimum_should_match":1,"filter":[{"range":{"affected_hosts_count":{"gte":1}}}]}},"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
+  -d '{"size":25,"query":{"bool":{"filter":[{"term":{"patch_decision":"patch_now"}},{"terms":{"verification_status":["confirmed_affected","likely_affected"]}},{"range":{"affected_hosts_count":{"gte":1}}}],"should":[{"term":{"exploitability_status":"exploited_in_wild"}},{"term":{"public_poc":true}},{"range":{"epss_score":{"gte":0.7}}}],"minimum_should_match":1}},"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
 ```
 
-Host bị ảnh hưởng bởi CVE nguy hiểm:
+Needs Review CVEs:
 
 ```bash
 curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
-  "$WAZUH_INDEXER_URL/wazuh-vuln-host-cve-impact-*/_search" \
+  "$WAZUH_INDEXER_URL/wazuh-vuln-cve-summary-*/_search" \
   -H 'Content-Type: application/json' \
-  -d '{"size":100,"query":{"bool":{"should":[{"term":{"patch_decision":"patch_now"}},{"term":{"patch_decision":"needs_review"}},{"term":{"kev":true}},{"term":{"public_poc":true}},{"range":{"epss_score":{"gte":0.7}}}],"minimum_should_match":1}},"sort":[{"risk_score":"desc"}]}'
+  -d '{"size":25,"query":{"bool":{"filter":[{"range":{"affected_hosts_count":{"gte":1}}}],"should":[{"term":{"patch_decision":"needs_review"}},{"bool":{"filter":[{"terms":{"verification_status":["vendor_not_found","needs_manual_check","not_verified"]}}],"should":[{"term":{"kev":true}},{"term":{"public_poc":true}},{"range":{"epss_score":{"gte":0.7}}}],"minimum_should_match":1}}],"minimum_should_match":1}},"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
 ```
 
 ## Troubleshooting
