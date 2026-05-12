@@ -225,6 +225,22 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
             },
             "parent": "",
         },
+        {
+            "id": "patch_decision",
+            "fieldName": "patch_decision.keyword",
+            "indexPatternRefName": "control_4_index",
+            "label": "Patch decision",
+            "type": "list",
+            "options": {
+                "type": "terms",
+                "multiselect": True,
+                "size": 20,
+                "order": "desc",
+                "useTimeFilter": True,
+                "ignoreTimeout": False,
+            },
+            "parent": "",
+        },
     ]
     vis_state = {
         "title": title,
@@ -254,6 +270,7 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
             {"name": "control_1_index", "type": "index-pattern", "id": HOST_CVE_IMPACT},
             {"name": "control_2_index", "type": "index-pattern", "id": HOST_CVE_IMPACT},
             {"name": "control_3_index", "type": "index-pattern", "id": HOST_CVE_IMPACT},
+            {"name": "control_4_index", "type": "index-pattern", "id": HOST_CVE_IMPACT},
         ],
     }
 
@@ -331,6 +348,7 @@ def build_objects() -> list[dict[str, Any]]:
     poc_columns = [
         "cve_id",
         "priority",
+        "patch_decision",
         "kev",
         "public_poc",
         "poc_count",
@@ -339,6 +357,9 @@ def build_objects() -> list[dict[str, Any]]:
         "affected_hosts_count",
         "affected_packages",
         "verification_status",
+        "exploitability_status",
+        "exposure_status",
+        "impact_assessment",
         "fix_available",
         "vendor_fixed_version",
         "vendor_advisory_url",
@@ -346,10 +367,12 @@ def build_objects() -> list[dict[str, Any]]:
         "vendor_status",
         "poc_references",
         "reason",
+        "recommended_action",
     ]
     poc_host_columns = [
         "cve_id",
         "priority",
+        "patch_decision",
         "kev",
         "public_poc",
         "poc_count",
@@ -361,6 +384,9 @@ def build_objects() -> list[dict[str, Any]]:
         "affected_packages",
         "affected_package_versions",
         "verification_status",
+        "exploitability_status",
+        "exposure_status",
+        "impact_assessment",
         "fix_available",
         "vendor_fixed_version",
         "vendor_advisory_url",

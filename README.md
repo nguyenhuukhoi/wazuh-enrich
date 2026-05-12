@@ -288,6 +288,11 @@ vendor_status
 fix_available
 fix_status
 ubuntu_release
+exploitability_status
+exposure_status
+patch_decision
+impact_assessment
+recommended_action
 ```
 
 Important statuses:
@@ -300,6 +305,23 @@ Important statuses:
 This makes PoC/KEV findings easier to triage because a high-priority row can now show whether Canonical confirms the host package is affected and whether a fixed version exists.
 
 For Ubuntu kernel packages, Wazuh usually reports binary package names such as `linux-image-6.8.0-36-generic`. Canonical tracks kernel vulnerabilities primarily under source package names such as `linux`. The enricher maps common kernel binary package names back to `linux` so these CVEs do not incorrectly show as `vendor_not_found`.
+
+Patch decision is the field to use when deciding whether to patch the system:
+
+```text
+patch_now       -> vendor confirms affected and the threat/exposure is high
+patch_scheduled -> vendor confirms affected and a fixed version exists
+monitor         -> affected or possibly affected, but exploitability is low or no fix exists yet
+no_action       -> installed version is already at or above the Ubuntu fixed version
+needs_review    -> Wazuh reported the finding, but vendor metadata did not confirm the package/release
+```
+
+The decision is intentionally conservative:
+
+- `KEV=yes` means exploited in the wild and overrides a low EPSS score.
+- `public_poc=yes` raises urgency only after the CVE is known to impact the system.
+- `vendor_not_found` with high threat becomes `needs_review`, not automatic `patch_now`.
+- Kernel findings become more urgent when the package appears to match the running kernel.
 
 ## First Run
 

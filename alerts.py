@@ -152,6 +152,7 @@ class AlertManager:
             f"- P0 CVEs: {len([cve for cve in cves if cve.get('priority') == 'P0'])}",
             f"- KEV CVEs: {len([cve for cve in cves if cve.get('kev')])}",
             f"- Public PoC CVEs: {len([cve for cve in cves if cve.get('public_poc')])}",
+            f"- Patch now CVEs: {len([cve for cve in cves if cve.get('patch_decision') == 'patch_now'])}",
             f"- EPSS >= {epss_high}: {len([cve for cve in cves if float(cve.get('epss_score', 0.0)) >= epss_high])}",
             "",
             "Top CVEs:",
@@ -166,6 +167,7 @@ class AlertManager:
         return (
             f"{index}. {cve.get('cve_id')} | KEV={'yes' if cve.get('kev') else 'no'} "
             f"| PoC={'yes' if cve.get('public_poc') else 'no'} "
+            f"| patch={cve.get('patch_decision', 'monitor')} "
             f"| EPSS={float(cve.get('epss_score', 0.0)):.2f} "
             f"| CVSS={float(cve.get('cvss_score', 0.0)):.1f} "
             f"| hosts={cve.get('affected_hosts_count', 0)} | package={package}"

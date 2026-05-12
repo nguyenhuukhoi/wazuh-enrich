@@ -92,6 +92,7 @@ class WazuhIndexerClient:
                     "impact_host": IMPACT_FIELD_MAPPING,
                     "os_name": {"type": "keyword"},
                     "os_version": {"type": "keyword"},
+                    "os_kernel": {"type": "keyword"},
                     "package_name": {"type": "keyword"},
                     "package_version": {"type": "keyword"},
                     "kev": {"type": "boolean"},
@@ -106,6 +107,10 @@ class WazuhIndexerClient:
                     "poc_sources": {"type": "keyword"},
                     "cvss_score": {"type": "float"},
                     "priority": {"type": "keyword"},
+                    "patch_decision": {"type": "keyword"},
+                    "exploitability_status": {"type": "keyword"},
+                    "exposure_status": {"type": "keyword"},
+                    "impact_assessment": {"type": "keyword"},
                     "risk_score": {"type": "float"},
                     "reason": {"type": "keyword"},
                     "detected_at": {"type": "date", "ignore_malformed": True},
@@ -120,6 +125,10 @@ class WazuhIndexerClient:
                     "cve_id": {"type": "keyword"},
                     "cve_year": {"type": "integer"},
                     "priority": {"type": "keyword"},
+                    "patch_decision": {"type": "keyword"},
+                    "exploitability_status": {"type": "keyword"},
+                    "exposure_status": {"type": "keyword"},
+                    "impact_assessment": {"type": "keyword"},
                     "kev": {"type": "boolean"},
                     "epss_score": {"type": "float"},
                     "epss_percentile": {"type": "float"},
@@ -143,6 +152,9 @@ class WazuhIndexerClient:
                     "agent_ip": {"type": "ip", "ignore_malformed": True},
                     "os_name": {"type": "keyword"},
                     "os_version": {"type": "keyword"},
+                    "patch_now_count": {"type": "integer"},
+                    "patch_scheduled_count": {"type": "integer"},
+                    "needs_review_count": {"type": "integer"},
                     "total_cves": {"type": "integer"},
                     "p0_count": {"type": "integer"},
                     "p1_count": {"type": "integer"},
@@ -166,6 +178,10 @@ class WazuhIndexerClient:
                     "os_name": {"type": "keyword"},
                     "os_version": {"type": "keyword"},
                     "priority": {"type": "keyword"},
+                    "patch_decision": {"type": "keyword"},
+                    "exploitability_status": {"type": "keyword"},
+                    "exposure_status": {"type": "keyword"},
+                    "impact_assessment": {"type": "keyword"},
                     "kev": {"type": "boolean"},
                     "public_poc": {"type": "boolean"},
                     "poc_count": {"type": "integer"},
@@ -316,6 +332,9 @@ class WazuhIndexerClient:
                 os_version = first_path(source, ["host.os.version", "agent.host.os.version"], "")
                 if os_version and not current.get("os_version"):
                     current["os_version"] = os_version
+                os_kernel = first_path(source, ["host.os.kernel", "agent.host.os.kernel"], "")
+                if os_kernel and not current.get("os_kernel"):
+                    current["os_kernel"] = os_kernel
         except Exception as exc:
             LOG.warning("agent_metadata_load_failed patterns=%s error=%s", patterns, exc)
         LOG.info("agent_metadata_loaded agents=%s patterns=%s ip_fields=%s", len(metadata), patterns, ip_fields)
@@ -495,6 +514,9 @@ class WazuhIndexerClient:
             os_version = first_path(source, ["host.os.version", "agent.host.os.version"], "")
             if os_version and not current.get("os_version"):
                 current["os_version"] = os_version
+            os_kernel = first_path(source, ["host.os.kernel", "agent.host.os.kernel"], "")
+            if os_kernel and not current.get("os_kernel"):
+                current["os_kernel"] = os_kernel
         return metadata
 
     @staticmethod

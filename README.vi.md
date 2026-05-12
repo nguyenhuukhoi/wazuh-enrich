@@ -264,6 +264,11 @@ vendor_status
 fix_available
 fix_status
 ubuntu_release
+exploitability_status
+exposure_status
+patch_decision
+impact_assessment
+recommended_action
 ```
 
 Ý nghĩa trạng thái:
@@ -274,6 +279,23 @@ ubuntu_release
 - `vendor_not_found`: Wazuh báo CVE nhưng không tìm thấy CVE/package trong Ubuntu metadata cache của release đó.
 
 Kernel Ubuntu: Wazuh thường báo binary package như `linux-image-6.8.0-36-generic`, còn Canonical hay tracking CVE theo source package `linux`. Enricher map các kernel binary package phổ biến về `linux` để tránh false `vendor_not_found`.
+
+`patch_decision` là field chính để quyết định có nên patch hệ thống không:
+
+```text
+patch_now       -> vendor xác nhận affected và threat/exposure cao
+patch_scheduled -> vendor xác nhận affected và đã có fixed version
+monitor         -> affected hoặc có thể affected, nhưng exploitability thấp hoặc chưa có fix
+no_action       -> installed version đã bằng hoặc cao hơn fixed version của Ubuntu
+needs_review    -> Wazuh báo finding nhưng vendor metadata chưa xác nhận đúng package/release
+```
+
+Logic này cố ý thận trọng:
+
+- `KEV=yes` nghĩa là đã bị khai thác ngoài thực tế, nên ưu tiên hơn EPSS thấp.
+- `public_poc=yes` chỉ tăng độ gấp sau khi CVE đó được xác định đang impact hệ thống.
+- `vendor_not_found` nhưng threat cao sẽ thành `needs_review`, không tự động coi là `patch_now`.
+- Kernel finding sẽ gấp hơn nếu package có vẻ khớp với running kernel.
 
 ## Chạy Lần Đầu
 

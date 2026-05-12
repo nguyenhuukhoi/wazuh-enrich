@@ -12,6 +12,9 @@ def test_build_host_cve_impact_summary_deduplicates_cve_agent_pairs():
             "package_version": "1",
             "public_poc": True,
             "priority": "P2",
+            "patch_decision": "patch_scheduled",
+            "exploitability_status": "public_poc_available",
+            "exposure_status": "kernel_package_installed",
             "kev": False,
             "poc_count": 1,
             "epss_score": 0.1,
@@ -29,6 +32,9 @@ def test_build_host_cve_impact_summary_deduplicates_cve_agent_pairs():
             "package_version": "2",
             "public_poc": True,
             "priority": "P2",
+            "patch_decision": "patch_now",
+            "exploitability_status": "public_poc_available",
+            "exposure_status": "running_kernel",
             "kev": False,
             "poc_count": 1,
             "epss_score": 0.1,
@@ -46,3 +52,5 @@ def test_build_host_cve_impact_summary_deduplicates_cve_agent_pairs():
     assert summaries[0]["agent_id"] == "001"
     assert summaries[0]["finding_count"] == 2
     assert summaries[0]["affected_packages"] == ["kernel-a", "kernel-b"]
+    assert summaries[0]["patch_decision"] == "patch_now"
+    assert summaries[0]["exploitability_status"] == "public_poc_available"

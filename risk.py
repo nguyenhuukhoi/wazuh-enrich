@@ -88,6 +88,75 @@ def calculate_risk_score(kev: bool, epss_score: float, cvss_score: float) -> flo
     return round((epss_score * 50.0) + (cvss_score * 3.0) + (30.0 if kev else 0.0), 2)
 
 
+def exploitability_status(kev: bool, public_poc: bool, epss_score: float) -> str:
+    if kev:
+        return "exploited_in_wild"
+    if public_poc:
+        return "public_poc_available"
+    if epss_score >= 0.7:
+        return "high_epss"
+    if epss_score >= 0.3:
+        return "medium_epss"
+    return "no_known_exploit"
+
+
+def exposure_status(package_name: str, os_kernel: str = "") -> str:
+    package = package_name or ""
+    if re.match(r"^linux-image-\d", package):
+        kernel_release = package.removeprefix("linux-image-")
+        if os_kernel and (os_kernel == kernel_release or kernel_release in os_kernel):
+            return "running_kernel"
+        return "kernel_package_installed"
+    if re.match(r"^linux-(modules|headers|tools)-\d", package):
+        return "kernel_related_package_installed"
+    return "package_installed"
+
+
+def patch_decision(
+    verification_status: str,
+    fix_available: bool,
+    kev: bool,
+    public_poc: bool,
+    epss_score: float,
+    cvss_score: float,
+    exposure: str,
+) -> str:
+    if verification_status == "installed_version_at_or_above_fixed":
+        return "no_action"
+
+    vendor_affected = verification_status in {"confirmed_affected", "likely_affected"}
+    high_threat = kev or epss_score >= 0.7 or (public_poc and cvss_score >= 7.0)
+    important_exposure = exposure == "running_kernel"
+
+    if vendor_affected and (kev or epss_score >= 0.7 or important_exposure and (public_poc or cvss_score >= 8.0)):
+        return "patch_now"
+    if vendor_affected and public_poc and cvss_score >= 7.0:
+        return "patch_now"
+    if vendor_affected and fix_available:
+        return "patch_scheduled"
+    if vendor_affected:
+        return "monitor"
+    if verification_status in {"vendor_not_found", "needs_manual_check", "not_verified"} and high_threat:
+        return "needs_review"
+    return "monitor"
+
+
+def impact_assessment(verification_status: str, exploit_status: str, exposure: str, decision: str) -> str:
+    if decision == "patch_now":
+        if exploit_status == "exploited_in_wild":
+            return "vendor_confirmed_exploited_patch_now"
+        if exposure == "running_kernel":
+            return "vendor_confirmed_running_kernel_patch_now"
+        return "vendor_confirmed_high_threat_patch_now"
+    if decision == "patch_scheduled":
+        return "vendor_confirmed_patch_available"
+    if decision == "no_action":
+        return "installed_version_not_vulnerable"
+    if decision == "needs_review":
+        return "wazuh_finding_vendor_unconfirmed_review"
+    return "monitor_vendor_or_exploitability"
+
+
 UBUNTU_RELEASE_BY_VERSION = {
     "24.04": "noble",
     "22.04": "jammy",
@@ -325,6 +394,7 @@ def normalize_finding(
 
     os_name = first_path(source, ["host.os.name", "agent.host.os.name", "host.os.full"], "") or metadata.get("os_name", "")
     os_version = first_path(source, ["host.os.version", "agent.host.os.version"], "") or metadata.get("os_version", "")
+    os_kernel = first_path(source, ["host.os.kernel", "agent.host.os.kernel"], "") or metadata.get("os_kernel", "")
     package_name = first_path(source, ["package.name"], "")
     package_version = first_path(source, ["package.version"], "")
     verification = verify_ubuntu_impact(
@@ -336,6 +406,23 @@ def normalize_finding(
         ubuntu_records,
         ubuntu_osv_records,
     )
+    exploit_status = exploitability_status(kev, poc is not None, epss.score)
+    system_exposure = exposure_status(package_name, os_kernel)
+    decision = patch_decision(
+        str(verification.get("verification_status", "not_verified")),
+        bool(verification.get("fix_available")),
+        kev,
+        poc is not None,
+        epss.score,
+        cvss_score,
+        system_exposure,
+    )
+    assessment = impact_assessment(
+        str(verification.get("verification_status", "not_verified")),
+        exploit_status,
+        system_exposure,
+        decision,
+    )
 
     doc = {
         "cve_id": cve_id,
@@ -345,6 +432,7 @@ def normalize_finding(
         "agent_ip": source_ip or metadata_ip,
         "os_name": os_name,
         "os_version": os_version,
+        "os_kernel": os_kernel,
         "package_name": package_name,
         "package_version": package_version,
         "package_architecture": first_path(source, ["package.architecture"], ""),
@@ -364,7 +452,19 @@ def normalize_finding(
         "published_at": first_path(source, ["vulnerability.published_at"], None),
         "first_detected_at": detected_at,
         "last_detected_at": detected_at,
-        "recommended_action": recommended_action(priority, kev, epss.score),
+        "exploitability_status": exploit_status,
+        "exposure_status": system_exposure,
+        "patch_decision": decision,
+        "impact_assessment": assessment,
+        "recommended_action": recommended_action(
+            decision,
+            priority,
+            kev,
+            epss.score,
+            bool(verification.get("fix_available")),
+            str(verification.get("vendor_fixed_version", "")),
+            system_exposure,
+        ),
         "enriched_at": datetime.now(timezone.utc).isoformat(),
         **verification,
     }
@@ -376,7 +476,32 @@ def normalize_finding(
     return doc
 
 
-def recommended_action(priority: str, kev: bool, epss_score: float) -> str:
+def recommended_action(
+    decision: str,
+    priority: str,
+    kev: bool,
+    epss_score: float,
+    fix_available: bool = False,
+    fixed_version: str = "",
+    exposure: str = "",
+) -> str:
+    fixed = f" Len fixed version: {fixed_version}." if fixed_version else ""
+    if decision == "patch_now":
+        if exposure == "running_kernel":
+            return f"Patch kernel ngay va reboot sang kernel da fix.{fixed}"
+        if kev:
+            return f"Patch hoac mitigate ngay; CVE da co trong CISA KEV.{fixed}"
+        return f"Patch som theo chu ky khan cap; exploitability cao tren package vendor-confirmed affected.{fixed}"
+    if decision == "patch_scheduled":
+        return f"Len lich patch theo maintenance window gan nhat.{fixed}"
+    if decision == "monitor":
+        if not fix_available:
+            return "Theo doi vendor advisory; chua thay fixed version hoac exploitability thap."
+        return "Theo doi va patch theo chu ky thong thuong."
+    if decision == "no_action":
+        return "Khong can patch cho finding nay; installed version dang bang hoac cao hon fixed version vendor."
+    if decision == "needs_review":
+        return "Can review thu cong: Wazuh co finding nhung vendor metadata chua xac nhan package/release bi anh huong."
     if kev:
         return "Patch hoac mitigate ngay; CVE da co trong CISA KEV."
     if priority == "P0":

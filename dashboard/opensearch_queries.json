@@ -17,6 +17,7 @@
       "_source": [
         "cve_id",
         "priority",
+        "patch_decision",
         "kev",
         "public_poc",
         "poc_count",
@@ -24,6 +25,11 @@
         "cvss_score",
         "affected_hosts_count",
         "affected_packages",
+        "verification_status",
+        "exploitability_status",
+        "exposure_status",
+        "impact_assessment",
+        "recommended_action",
         "reason"
       ]
     }
@@ -43,6 +49,9 @@
         "agent_ip",
         "os_name",
         "total_cves",
+        "patch_now_count",
+        "patch_scheduled_count",
+        "needs_review_count",
         "p0_count",
         "p1_count",
         "kev_count",
@@ -87,6 +96,7 @@
       "_source": [
         "cve_id",
         "priority",
+        "patch_decision",
         "kev",
         "public_poc",
         "poc_count",
@@ -94,7 +104,12 @@
         "epss_score",
         "cvss_score",
         "affected_hosts_count",
-        "affected_packages"
+        "affected_packages",
+        "verification_status",
+        "exploitability_status",
+        "exposure_status",
+        "impact_assessment",
+        "recommended_action"
       ]
     }
   }

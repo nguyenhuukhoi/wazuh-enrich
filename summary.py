@@ -12,6 +12,13 @@ VERIFICATION_ORDER = {
     "installed_version_at_or_above_fixed": 4,
     "not_verified": 5,
 }
+PATCH_DECISION_ORDER = {
+    "patch_now": 0,
+    "patch_scheduled": 1,
+    "needs_review": 2,
+    "monitor": 3,
+    "no_action": 4,
+}
 
 
 def _min_dt(values: list[str | None]) -> str | None:
@@ -33,6 +40,21 @@ def _highest_verification_status(docs: list[dict[str, Any]]) -> str:
     return sorted(statuses, key=lambda val: VERIFICATION_ORDER.get(val, 99))[0] if statuses else "not_verified"
 
 
+def _highest_patch_decision(docs: list[dict[str, Any]]) -> str:
+    decisions = {str(doc.get("patch_decision", "monitor")) for doc in docs}
+    return sorted(decisions, key=lambda val: PATCH_DECISION_ORDER.get(val, 99))[0] if decisions else "monitor"
+
+
+def _highest_patch_doc(docs: list[dict[str, Any]]) -> dict[str, Any]:
+    return sorted(
+        docs,
+        key=lambda doc: (
+            PATCH_DECISION_ORDER.get(str(doc.get("patch_decision", "monitor")), 99),
+            -float(doc.get("risk_score", 0.0)),
+        ),
+    )[0]
+
+
 def build_cve_summary(enriched_docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for doc in enriched_docs:
@@ -45,11 +67,17 @@ def build_cve_summary(enriched_docs: list[dict[str, Any]]) -> list[dict[str, Any
         packages = Counter(str(doc.get("package_name", "")) for doc in docs)
         hosts = {str(doc.get("agent_id", "")) for doc in docs if doc.get("agent_id")}
         highest = max(docs, key=lambda doc: float(doc.get("risk_score", 0.0)))
+        patch_doc = _highest_patch_doc(docs)
         public_poc = any(bool(doc.get("public_poc")) for doc in docs)
+        patch_decision = _highest_patch_decision(docs)
         summary = {
             "cve_id": cve_id,
             "cve_year": highest.get("cve_year"),
             "priority": priorities[0] if priorities else "P3",
+            "patch_decision": patch_decision,
+            "exploitability_status": patch_doc.get("exploitability_status", ""),
+            "exposure_status": patch_doc.get("exposure_status", ""),
+            "impact_assessment": patch_doc.get("impact_assessment", ""),
             "kev": any(bool(doc.get("kev")) for doc in docs),
             "epss_score": max(float(doc.get("epss_score", 0.0)) for doc in docs),
             "epss_percentile": max(float(doc.get("epss_percentile", 0.0)) for doc in docs),
@@ -83,6 +111,7 @@ def build_cve_summary(enriched_docs: list[dict[str, Any]]) -> list[dict[str, Any
             "vendor_advisory_url": highest.get("vendor_advisory_url", ""),
             "vendor_severity": highest.get("vendor_severity", ""),
             "vendor_status": highest.get("vendor_status", ""),
+            "recommended_action": patch_doc.get("recommended_action", ""),
             "updated_at": now,
         }
         if public_poc:
@@ -118,6 +147,9 @@ def build_host_summary(enriched_docs: list[dict[str, Any]]) -> list[dict[str, An
                 "os_name": first.get("os_name", ""),
                 "os_version": first.get("os_version", ""),
                 "total_cves": len(cves),
+                "patch_now_count": len({doc["cve_id"] for doc in docs if doc.get("patch_decision") == "patch_now"}),
+                "patch_scheduled_count": len({doc["cve_id"] for doc in docs if doc.get("patch_decision") == "patch_scheduled"}),
+                "needs_review_count": len({doc["cve_id"] for doc in docs if doc.get("patch_decision") == "needs_review"}),
                 "p0_count": len({doc["cve_id"] for doc in docs if doc.get("priority") == "P0"}),
                 "p1_count": len({doc["cve_id"] for doc in docs if doc.get("priority") == "P1"}),
                 "kev_count": len({doc["cve_id"] for doc in docs if doc.get("kev")}),
@@ -146,6 +178,8 @@ def build_host_cve_impact_summary(enriched_docs: list[dict[str, Any]]) -> list[d
     for (cve_id, agent_id), docs in grouped.items():
         priorities = sorted({doc["priority"] for doc in docs}, key=lambda val: PRIORITY_ORDER.get(val, 9))
         highest = max(docs, key=lambda doc: float(doc.get("risk_score", 0.0)))
+        patch_doc = _highest_patch_doc(docs)
+        patch_decision = _highest_patch_decision(docs)
         packages = Counter(str(doc.get("package_name", "")) for doc in docs)
         versions = Counter(str(doc.get("package_version", "")) for doc in docs)
         first = docs[0]
@@ -161,6 +195,10 @@ def build_host_cve_impact_summary(enriched_docs: list[dict[str, Any]]) -> list[d
                 "os_name": first.get("os_name", ""),
                 "os_version": first.get("os_version", ""),
                 "priority": priorities[0] if priorities else "P3",
+                "patch_decision": patch_decision,
+                "exploitability_status": patch_doc.get("exploitability_status", ""),
+                "exposure_status": patch_doc.get("exposure_status", ""),
+                "impact_assessment": patch_doc.get("impact_assessment", ""),
                 "kev": any(bool(doc.get("kev")) for doc in docs),
                 "public_poc": True,
                 "poc_count": max(int(doc.get("poc_count", 0)) for doc in docs),
@@ -185,7 +223,7 @@ def build_host_cve_impact_summary(enriched_docs: list[dict[str, Any]]) -> list[d
                 "first_detected_at": _min_dt([doc.get("first_detected_at") or doc.get("detected_at") for doc in docs]),
                 "last_detected_at": _max_dt([doc.get("last_detected_at") or doc.get("detected_at") for doc in docs]),
                 "reason": highest.get("reason", ""),
-                "recommended_action": highest.get("recommended_action", ""),
+                "recommended_action": patch_doc.get("recommended_action", ""),
                 "verification_status": _highest_verification_status(docs),
                 "fix_available": any(bool(doc.get("fix_available")) for doc in docs),
                 "fix_status": "fixed_version_available"

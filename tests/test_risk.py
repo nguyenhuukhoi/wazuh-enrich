@@ -1,6 +1,16 @@
 from feed_sync import EpssRecord, PocRecord
 from feed_sync import UbuntuOvalRecord, UbuntuOsvRecord
-from risk import calculate_risk_score, classify_priority, deb_version_compare, first_valid_ip, normalize_finding, ubuntu_package_candidates, verify_ubuntu_impact
+from risk import (
+    calculate_risk_score,
+    classify_priority,
+    deb_version_compare,
+    exposure_status,
+    first_valid_ip,
+    normalize_finding,
+    patch_decision,
+    ubuntu_package_candidates,
+    verify_ubuntu_impact,
+)
 
 
 def test_priority_p0_for_kev():
@@ -185,6 +195,9 @@ def test_normalize_finding_adds_ubuntu_verification_fields():
     assert doc is not None
     assert doc["verification_status"] == "confirmed_affected"
     assert doc["ubuntu_release"] == "noble"
+    assert doc["patch_decision"] == "patch_scheduled"
+    assert doc["exploitability_status"] == "no_known_exploit"
+    assert doc["exposure_status"] == "package_installed"
 
 
 def test_verify_ubuntu_impact_uses_osv_for_kernel_binary_source_package_match():
@@ -219,3 +232,52 @@ def test_ubuntu_package_candidates_maps_generic_kernel_binary_to_linux_source():
         "linux-image-6.8.0-36-generic",
         "linux",
     ]
+
+
+def test_patch_decision_patch_now_for_vendor_confirmed_kev():
+    assert (
+        patch_decision(
+            verification_status="confirmed_affected",
+            fix_available=True,
+            kev=True,
+            public_poc=False,
+            epss_score=0.01,
+            cvss_score=7.8,
+            exposure="package_installed",
+        )
+        == "patch_now"
+    )
+
+
+def test_patch_decision_needs_review_when_vendor_unconfirmed_but_threat_is_high():
+    assert (
+        patch_decision(
+            verification_status="vendor_not_found",
+            fix_available=False,
+            kev=True,
+            public_poc=False,
+            epss_score=0.01,
+            cvss_score=7.8,
+            exposure="package_installed",
+        )
+        == "needs_review"
+    )
+
+
+def test_patch_decision_no_action_when_installed_version_is_fixed():
+    assert (
+        patch_decision(
+            verification_status="installed_version_at_or_above_fixed",
+            fix_available=True,
+            kev=True,
+            public_poc=True,
+            epss_score=0.9,
+            cvss_score=9.8,
+            exposure="package_installed",
+        )
+        == "no_action"
+    )
+
+
+def test_exposure_status_detects_running_kernel():
+    assert exposure_status("linux-image-6.8.0-36-generic", "6.8.0-36-generic") == "running_kernel"
