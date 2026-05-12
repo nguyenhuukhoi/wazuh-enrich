@@ -15,6 +15,7 @@ DEFAULT_STATE: dict[str, Any] = {
     "last_kev_status_by_cve": {},
     "last_epss_threshold_by_cve": {},
     "alert_dedup_keys": {},
+    "last_alert_sent_by_type": {},
     "feed_fingerprints": {},
     "last_daily_full_refresh_index": None,
 }
@@ -57,6 +58,30 @@ class StateStore:
 
     def was_alert_sent(self, key: str) -> bool:
         return key in self.data.get("alert_dedup_keys", {})
+
+    def mark_alert_type_sent(self, alert_type: str) -> None:
+        self.data.setdefault("last_alert_sent_by_type", {})[alert_type] = datetime.now(timezone.utc).isoformat()
+
+    def last_alert_type_sent_at(self, alert_type: str) -> datetime | None:
+        raw = self.data.setdefault("last_alert_sent_by_type", {}).get(alert_type)
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def alert_interval_elapsed(self, alert_type: str, interval_seconds: int) -> tuple[bool, datetime | None]:
+        if interval_seconds <= 0:
+            return True, self.last_alert_type_sent_at(alert_type)
+        last_sent = self.last_alert_type_sent_at(alert_type)
+        if last_sent is None:
+            return True, None
+        elapsed = (datetime.now(timezone.utc) - last_sent).total_seconds()
+        return elapsed >= interval_seconds, last_sent
 
     def set_last_processed_timestamp(self, timestamp: str | None) -> None:
         if timestamp:

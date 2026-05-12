@@ -166,8 +166,6 @@ def build_host_summary(enriched_docs: list[dict[str, Any]]) -> list[dict[str, An
 def build_host_cve_impact_summary(enriched_docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for doc in enriched_docs:
-        if not doc.get("public_poc"):
-            continue
         cve_id = str(doc.get("cve_id", ""))
         agent_id = str(doc.get("agent_id", ""))
         if cve_id and agent_id:
@@ -200,7 +198,7 @@ def build_host_cve_impact_summary(enriched_docs: list[dict[str, Any]]) -> list[d
                 "exposure_status": patch_doc.get("exposure_status", ""),
                 "impact_assessment": patch_doc.get("impact_assessment", ""),
                 "kev": any(bool(doc.get("kev")) for doc in docs),
-                "public_poc": True,
+                "public_poc": any(bool(doc.get("public_poc")) for doc in docs),
                 "poc_count": max(int(doc.get("poc_count", 0)) for doc in docs),
                 "poc_references": sorted(
                     {

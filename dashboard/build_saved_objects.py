@@ -8,7 +8,7 @@ ENRICHED = "wazuh-vuln-enriched-pattern"
 CVE_SUMMARY = "wazuh-vuln-cve-summary-pattern"
 HOST_SUMMARY = "wazuh-vuln-host-summary-pattern"
 HOST_CVE_IMPACT = "wazuh-vuln-host-cve-impact-pattern"
-PUBLIC_POC_IMPACT_QUERY = "public_poc:true and affected_hosts_count > 0"
+DANGEROUS_IMPACT_QUERY = "patch_decision:patch_now or patch_decision:needs_review or kev:true or public_poc:true or epss_score >= 0.7"
 
 
 def dumps(value: Any) -> str:
@@ -165,7 +165,7 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
             "id": "public_poc_cve",
             "fieldName": "impact_cve_id.keyword",
             "indexPatternRefName": "control_0_index",
-            "label": "Public PoC CVE impacting system",
+            "label": "Dangerous CVE impacting system",
             "type": "list",
             "options": {
                 "type": "terms",
@@ -181,7 +181,7 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
             "id": "impact_host",
             "fieldName": "impact_host.keyword",
             "indexPatternRefName": "control_1_index",
-            "label": "Host impacted by public PoC",
+            "label": "Host impacted by dangerous CVE",
             "type": "list",
             "options": {
                 "type": "terms",
@@ -260,7 +260,7 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
             "title": title,
             "visState": dumps(vis_state),
             "uiStateJSON": "{}",
-            "description": "Dropdown filter for public PoC CVEs currently impacting hosts.",
+            "description": "Dropdown filter for dangerous CVEs currently impacting hosts.",
             "version": 1,
             "kibanaSavedObjectMeta": {"searchSourceJSON": search_source(index_ref)},
         },
@@ -281,6 +281,7 @@ def saved_search(
     index_ref: str,
     columns: list[str],
     sort_field: str,
+    query: str = "",
     filters: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
@@ -291,7 +292,7 @@ def saved_search(
             "description": "",
             "columns": columns,
             "sort": [[sort_field, "desc"]],
-            "kibanaSavedObjectMeta": {"searchSourceJSON": search_source(index_ref, filters=filters)},
+            "kibanaSavedObjectMeta": {"searchSourceJSON": search_source(index_ref, query=query, filters=filters)},
         },
         "references": [
             {"name": "kibanaSavedObjectMeta.searchSourceJSON.index", "type": "index-pattern", "id": index_ref}
@@ -333,7 +334,7 @@ def dashboard_object() -> dict[str, Any]:
         "id": "wazuh-vuln-enrichment-overview",
         "attributes": {
             "title": "Wazuh Vulnerability Enrichment Overview",
-            "description": "Public PoC CVEs currently impacting this system and the affected hosts.",
+            "description": "Dangerous CVEs currently impacting this system and the affected hosts.",
             "panelsJSON": dumps(panels),
             "optionsJSON": dumps({"useMargins": True, "hidePanelTitles": False}),
             "version": 1,
@@ -347,57 +348,57 @@ def dashboard_object() -> dict[str, Any]:
 def build_objects() -> list[dict[str, Any]]:
     poc_columns = [
         "cve_id",
-        "priority",
         "patch_decision",
-        "kev",
-        "public_poc",
-        "poc_count",
-        "epss_score",
-        "cvss_score",
-        "affected_hosts_count",
-        "affected_packages",
+        "impact_assessment",
         "verification_status",
         "exploitability_status",
-        "exposure_status",
-        "impact_assessment",
+        "kev",
+        "public_poc",
         "fix_available",
         "vendor_fixed_version",
+        "recommended_action",
+        "affected_hosts_count",
+        "affected_packages",
+        "priority",
+        "epss_score",
+        "cvss_score",
+        "exposure_status",
         "vendor_advisory_url",
         "vendor_severity",
         "vendor_status",
+        "poc_count",
         "poc_references",
         "reason",
-        "recommended_action",
     ]
     poc_host_columns = [
         "cve_id",
-        "priority",
         "patch_decision",
+        "impact_assessment",
+        "verification_status",
+        "exploitability_status",
         "kev",
         "public_poc",
-        "poc_count",
+        "fix_available",
+        "vendor_fixed_version",
+        "recommended_action",
         "agent_id",
         "agent_name",
         "agent_ip",
-        "os_name",
-        "os_version",
         "affected_packages",
         "affected_package_versions",
-        "verification_status",
-        "exploitability_status",
+        "priority",
+        "epss_score",
+        "cvss_score",
+        "os_name",
+        "os_version",
         "exposure_status",
-        "impact_assessment",
-        "fix_available",
-        "vendor_fixed_version",
         "vendor_advisory_url",
         "vendor_severity",
         "vendor_status",
         "finding_count",
-        "epss_score",
-        "cvss_score",
         "last_detected_at",
+        "poc_count",
         "poc_references",
-        "recommended_action",
     ]
     return [
         index_pattern(ENRICHED, "wazuh-vuln-enriched-*", "enriched_at"),
@@ -406,19 +407,20 @@ def build_objects() -> list[dict[str, Any]]:
         controls_vis("vis-impact-controls", "Impact Filters", HOST_CVE_IMPACT),
         saved_search(
             "search-public-poc",
-            "Public PoC CVEs Impacting This System",
+            "Dangerous CVEs Impacting This System",
             CVE_SUMMARY,
             poc_columns,
             "risk_score",
-            filters=[phrase_filter("public_poc", True, CVE_SUMMARY), range_filter("affected_hosts_count", 1, CVE_SUMMARY)],
+            query=DANGEROUS_IMPACT_QUERY,
+            filters=[range_filter("affected_hosts_count", 1, CVE_SUMMARY)],
         ),
         saved_search(
             "search-public-poc-hosts",
-            "Hosts Affected by Public PoC CVEs",
+            "Hosts Affected by Dangerous CVEs",
             HOST_CVE_IMPACT,
             poc_host_columns,
             "risk_score",
-            filters=[phrase_filter("public_poc", True, HOST_CVE_IMPACT)],
+            query=DANGEROUS_IMPACT_QUERY,
         ),
         dashboard_object(),
     ]

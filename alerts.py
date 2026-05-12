@@ -9,11 +9,28 @@ from state import StateStore
 
 LOG = logging.getLogger(__name__)
 
+PATCH_DECISION_ORDER = {
+    "patch_now": 0,
+    "needs_review": 1,
+    "patch_scheduled": 2,
+    "monitor": 3,
+    "no_action": 4,
+}
+
 
 def as_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def as_int(value: Any, default: int = 0) -> int:
+    try:
+        if value in (None, ""):
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def finding_dedup_key(doc: dict[str, Any]) -> str:
@@ -46,11 +63,15 @@ class AlertManager:
         self.send_all_alerts = as_bool(thresholds.get("send_all_alerts", False))
         self.send_all_impacted_cves = as_bool(thresholds.get("send_all_impacted_cves", False))
         self.public_poc_only = as_bool(thresholds.get("public_poc_only", False))
+        self.alert_interval_seconds = as_int(thresholds.get("alert_interval_seconds", 0), 0)
 
     def process_cycle(self, enriched_docs: list[dict[str, Any]], cve_summaries: list[dict[str, Any]]) -> None:
+        if self._cycle_alert_throttled():
+            return
         interesting = self._new_interesting_cves(cve_summaries)
         if interesting:
             self.send_message(self._format_critical_alert(interesting, enriched_docs))
+            self.state.mark_alert_type_sent("cycle")
 
         for doc in enriched_docs:
             if doc.get("priority") in {"P0", "P1"}:
@@ -84,6 +105,19 @@ class AlertManager:
         ]
         lines.extend(self._format_cve_line(index + 1, doc) for index, doc in enumerate(top))
         self.send_message("\n".join(lines))
+
+    def _cycle_alert_throttled(self) -> bool:
+        if self.alert_interval_seconds <= 0:
+            return False
+        elapsed, last_sent = self.state.alert_interval_elapsed("cycle", self.alert_interval_seconds)
+        if elapsed:
+            return False
+        LOG.info(
+            "alert_interval_skip type=cycle last_sent=%s interval_seconds=%s",
+            last_sent.isoformat() if last_sent else "",
+            self.alert_interval_seconds,
+        )
+        return True
 
     def _new_interesting_cves(self, cve_summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         selected = []
@@ -129,7 +163,13 @@ class AlertManager:
                     self.state.mark_alert_sent(key)
                 selected.append(cve)
 
-        return sorted(selected, key=lambda doc: float(doc.get("risk_score", 0.0)), reverse=True)
+        return sorted(
+            selected,
+            key=lambda doc: (
+                PATCH_DECISION_ORDER.get(str(doc.get("patch_decision", "monitor")), 99),
+                -float(doc.get("risk_score", 0.0)),
+            ),
+        )
 
     def _format_critical_alert(self, cves: list[dict[str, Any]], enriched_docs: list[dict[str, Any]]) -> str:
         epss_high = float(self.thresholds.get("epss_high", 0.7))
@@ -145,17 +185,20 @@ class AlertManager:
         affected_label = "Affected agents" if affected_agent_ids else "Affected host-CVE pairs"
         affected_value = len(affected_agent_ids) if affected_agent_ids else affected_fallback
         lines = [
-            "CRITICAL - Exploited CVEs detected",
+            "CRITICAL - Dangerous CVEs impacting system",
             "",
             "Summary:",
             f"- {affected_label}: {affected_value}",
+            f"- Patch now CVEs: {len([cve for cve in cves if cve.get('patch_decision') == 'patch_now'])}",
+            f"- Needs review CVEs: {len([cve for cve in cves if cve.get('patch_decision') == 'needs_review'])}",
+            f"- Vendor confirmed affected: {len([cve for cve in cves if cve.get('verification_status') in {'confirmed_affected', 'likely_affected'}])}",
+            f"- Fix available CVEs: {len([cve for cve in cves if cve.get('fix_available')])}",
             f"- P0 CVEs: {len([cve for cve in cves if cve.get('priority') == 'P0'])}",
             f"- KEV CVEs: {len([cve for cve in cves if cve.get('kev')])}",
             f"- Public PoC CVEs: {len([cve for cve in cves if cve.get('public_poc')])}",
-            f"- Patch now CVEs: {len([cve for cve in cves if cve.get('patch_decision') == 'patch_now'])}",
             f"- EPSS >= {epss_high}: {len([cve for cve in cves if float(cve.get('epss_score', 0.0)) >= epss_high])}",
             "",
-            "Top CVEs:",
+            "Top CVEs to decide patching:",
         ]
         lines.extend(self._format_summary_line(index + 1, cve) for index, cve in enumerate(top_cves))
         return "\n".join(lines)
@@ -164,13 +207,19 @@ class AlertManager:
     def _format_summary_line(index: int, cve: dict[str, Any]) -> str:
         packages = cve.get("affected_packages") or []
         package = packages[0] if packages else "-"
+        action = str(cve.get("recommended_action", "")).strip()
+        if len(action) > 120:
+            action = f"{action[:117]}..."
         return (
-            f"{index}. {cve.get('cve_id')} | KEV={'yes' if cve.get('kev') else 'no'} "
-            f"| PoC={'yes' if cve.get('public_poc') else 'no'} "
-            f"| patch={cve.get('patch_decision', 'monitor')} "
+            f"{index}. {cve.get('cve_id')} | patch={cve.get('patch_decision', 'monitor')} "
+            f"| Ubuntu={cve.get('verification_status', 'not_verified')} "
+            f"| exploit={cve.get('exploitability_status', 'unknown')} "
+            f"| KEV={'yes' if cve.get('kev') else 'no'} | PoC={'yes' if cve.get('public_poc') else 'no'} "
             f"| EPSS={float(cve.get('epss_score', 0.0)):.2f} "
             f"| CVSS={float(cve.get('cvss_score', 0.0)):.1f} "
-            f"| hosts={cve.get('affected_hosts_count', 0)} | package={package}"
+            f"| hosts={cve.get('affected_hosts_count', 0)} | package={package} "
+            f"| fix={'yes' if cve.get('fix_available') else 'no'}"
+            + (f" | action={action}" if action else "")
         )
 
     @staticmethod

@@ -77,14 +77,21 @@
       "sort": [{ "risk_score": "desc" }]
     }
   },
-  "public_poc_cves": {
+  "dangerous_cves": {
     "index": "wazuh-vuln-cve-summary-*",
     "body": {
       "size": 25,
       "query": {
         "bool": {
-          "filter": [
+          "should": [
+            { "term": { "patch_decision": "patch_now" } },
+            { "term": { "patch_decision": "needs_review" } },
+            { "term": { "kev": true } },
             { "term": { "public_poc": true } },
+            { "range": { "epss_score": { "gte": 0.7 } } }
+          ],
+          "minimum_should_match": 1,
+          "filter": [
             { "range": { "affected_hosts_count": { "gte": 1 } } }
           ]
         }
@@ -95,21 +102,23 @@
       ],
       "_source": [
         "cve_id",
-        "priority",
         "patch_decision",
+        "impact_assessment",
+        "verification_status",
+        "exploitability_status",
         "kev",
         "public_poc",
-        "poc_count",
-        "poc_references",
+        "fix_available",
+        "vendor_fixed_version",
+        "recommended_action",
+        "priority",
         "epss_score",
         "cvss_score",
         "affected_hosts_count",
         "affected_packages",
-        "verification_status",
-        "exploitability_status",
         "exposure_status",
-        "impact_assessment",
-        "recommended_action"
+        "poc_count",
+        "poc_references"
       ]
     }
   }

@@ -86,6 +86,11 @@ ALERT_THRESHOLDS:
   send_all_alerts: false
   # true = only alert CVEs that currently impact the system and have public PoC metadata.
   public_poc_only: false
+  # How often Telegram may resend the same aggregate cycle alert.
+  # 0 = no time limit.
+  # If send_all_alerts is true, Telegram can send again every enrichment cycle.
+  # If send_all_alerts is false, STATE_FILE dedup still prevents old CVE alerts from repeating.
+  alert_interval_seconds: 0
   # Set 0 to include every matched CVE in the Telegram message.
   max_top_cves: 10
 

@@ -467,6 +467,7 @@ ALERT_THRESHOLDS:
   send_all_impacted_cves: false
   send_all_alerts: false
   public_poc_only: false
+  alert_interval_seconds: 0
   max_top_cves: 10
 ```
 
@@ -499,22 +500,34 @@ ALERT_THRESHOLDS:
   send_all_impacted_cves: true
   send_all_alerts: true
   public_poc_only: true
+  alert_interval_seconds: 3600
   max_top_cves: 0
 ```
+
+`alert_interval_seconds` là khoảng cách tối thiểu giữa 2 lần aggregate cycle alert. Nó chỉ áp dụng cho alert cycle bình thường từ `process_cycle`; alert baseline của agent mới vẫn gửi ngay khi detect. Lần alert đầu tiên sau khi start service sẽ gửi ngay nếu `STATE_FILE` chưa có `last_alert_sent_by_type.cycle`. Nếu service restart và lần gửi cycle alert trước vẫn còn trong khoảng interval, service sẽ không spam Telegram sau restart.
+
+Option này không tạo scheduler alert riêng. Alert chỉ được evaluate khi enrichment/inventory processing chạy. Nếu `alert_interval_seconds` nhỏ hơn `SCHEDULE.enrichment_seconds`, nhịp gửi thực tế vẫn bị giới hạn bởi enrichment cycle.
 
 `max_top_cves: 0` nghĩa là đưa toàn bộ CVE match điều kiện vào Telegram message. Cẩn thận khi bật trên môi trường lớn vì message có thể rất dài hoặc vượt giới hạn Telegram.
 
 Ví dụ:
 
 ```text
-CRITICAL - Exploited CVEs detected
+CRITICAL - Dangerous CVEs impacting system
 
 Summary:
 - Affected agents: 2
+- Patch now CVEs: 2
+- Needs review CVEs: 1
+- Vendor confirmed affected: 2
+- Fix available CVEs: 2
 - P0 CVEs: 4
 - KEV CVEs: 2
 - Public PoC CVEs: 1
 - EPSS >= 0.7: 3
+
+Top CVEs to decide patching:
+1. CVE-2025-0001 | patch=patch_now | Ubuntu=confirmed_affected | exploit=exploited_in_wild | KEV=yes | PoC=yes | EPSS=0.94 | CVSS=9.8 | hosts=72 | package=openssl | fix=yes | action=Patch now.
 ```
 
 ## Dashboard
@@ -536,27 +549,27 @@ python3 dashboard/manage_saved_objects.py reimport --no-verify-ssl
 Dashboard hiện có:
 
 - Impact Filters.
-- Public PoC CVEs Impacting This System.
-- Hosts Affected by Public PoC CVEs.
+- Dangerous CVEs Impacting This System.
+- Hosts Affected by Dangerous CVEs.
 
 ## Kiểm Tra Nhanh
 
-CVE có public PoC và đang impact hệ thống:
+CVE nguy hiểm và đang impact hệ thống:
 
 ```bash
 curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
   "$WAZUH_INDEXER_URL/wazuh-vuln-cve-summary-*/_search" \
   -H 'Content-Type: application/json' \
-  -d '{"size":25,"query":{"bool":{"filter":[{"term":{"public_poc":true}},{"range":{"affected_hosts_count":{"gte":1}}}]}},"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
+  -d '{"size":25,"query":{"bool":{"should":[{"term":{"patch_decision":"patch_now"}},{"term":{"patch_decision":"needs_review"}},{"term":{"kev":true}},{"term":{"public_poc":true}},{"range":{"epss_score":{"gte":0.7}}}],"minimum_should_match":1,"filter":[{"range":{"affected_hosts_count":{"gte":1}}}]}},"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
 ```
 
-Host bị ảnh hưởng bởi CVE có public PoC:
+Host bị ảnh hưởng bởi CVE nguy hiểm:
 
 ```bash
 curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
   "$WAZUH_INDEXER_URL/wazuh-vuln-host-cve-impact-*/_search" \
   -H 'Content-Type: application/json' \
-  -d '{"size":100,"query":{"term":{"public_poc":true}},"sort":[{"risk_score":"desc"}]}'
+  -d '{"size":100,"query":{"bool":{"should":[{"term":{"patch_decision":"patch_now"}},{"term":{"patch_decision":"needs_review"}},{"term":{"kev":true}},{"term":{"public_poc":true}},{"range":{"epss_score":{"gte":0.7}}}],"minimum_should_match":1}},"sort":[{"risk_score":"desc"}]}'
 ```
 
 ## Troubleshooting

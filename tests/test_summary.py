@@ -54,3 +54,35 @@ def test_build_host_cve_impact_summary_deduplicates_cve_agent_pairs():
     assert summaries[0]["affected_packages"] == ["kernel-a", "kernel-b"]
     assert summaries[0]["patch_decision"] == "patch_now"
     assert summaries[0]["exploitability_status"] == "public_poc_available"
+
+
+def test_build_host_cve_impact_summary_includes_non_poc_dangerous_cves():
+    docs = [
+        {
+            "cve_id": "CVE-2026-KEV1",
+            "agent_id": "001",
+            "agent_name": "host-1",
+            "agent_ip": "10.0.0.1",
+            "package_name": "kernel",
+            "package_version": "1",
+            "public_poc": False,
+            "priority": "P0",
+            "patch_decision": "patch_now",
+            "exploitability_status": "exploited_in_wild",
+            "exposure_status": "running_kernel",
+            "kev": True,
+            "poc_count": 0,
+            "epss_score": 0.1,
+            "epss_percentile": 0.2,
+            "cvss_score": 7.8,
+            "risk_score": 60.0,
+            "detected_at": "2026-05-09T00:00:00Z",
+        }
+    ]
+
+    summaries = build_host_cve_impact_summary(docs)
+
+    assert len(summaries) == 1
+    assert summaries[0]["cve_id"] == "CVE-2026-KEV1"
+    assert summaries[0]["public_poc"] is False
+    assert summaries[0]["patch_decision"] == "patch_now"

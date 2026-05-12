@@ -40,6 +40,11 @@ def test_alert_dedup_for_same_cve(tmp_path):
             "affected_hosts_count": 72,
             "affected_packages": ["openssl"],
             "public_poc": True,
+            "patch_decision": "patch_now",
+            "verification_status": "confirmed_affected",
+            "exploitability_status": "exploited_in_wild",
+            "fix_available": True,
+            "recommended_action": "Patch now.",
             "risk_score": 106.4,
         }
     ]
@@ -54,11 +59,16 @@ def test_alert_dedup_for_same_cve(tmp_path):
     manager.process_cycle(enriched_docs, cve_summary)
 
     assert len(manager.messages) == 1
-    assert "CRITICAL - Exploited CVEs detected" in manager.messages[0]
+    assert "CRITICAL - Dangerous CVEs impacting system" in manager.messages[0]
     assert "- Affected agents: 2" in manager.messages[0]
     assert "- Affected agents: 72" not in manager.messages[0]
     assert "- Public PoC CVEs: 1" in manager.messages[0]
+    assert "- Patch now CVEs: 1" in manager.messages[0]
+    assert "- Vendor confirmed affected: 1" in manager.messages[0]
     assert "PoC=yes" in manager.messages[0]
+    assert "patch=patch_now" in manager.messages[0]
+    assert "Ubuntu=confirmed_affected" in manager.messages[0]
+    assert "action=Patch now." in manager.messages[0]
 
 
 def test_alert_summary_fallback_names_host_cve_pairs(tmp_path):
@@ -229,6 +239,118 @@ def test_max_top_cves_zero_includes_all_cves(tmp_path):
 
     assert "1. CVE-2026-0001" in manager.messages[0]
     assert "2. CVE-2026-0002" in manager.messages[0]
+
+
+def test_alert_interval_sends_first_cycle_then_skips_until_elapsed(tmp_path):
+    state = StateStore(tmp_path / "state.json")
+    manager = CapturingAlertManager(
+        bot_token="",
+        chat_id="",
+        thresholds={"send_all_alerts": True, "alert_interval_seconds": 3600},
+        state=state,
+    )
+    cve_summary = [
+        {
+            "cve_id": "CVE-2026-0001",
+            "priority": "P0",
+            "kev": False,
+            "epss_score": 0.8,
+            "cvss_score": 9.0,
+            "affected_hosts_count": 1,
+            "affected_packages": ["openssl"],
+            "risk_score": 90.0,
+        }
+    ]
+
+    manager.process_cycle([{"cve_id": "CVE-2026-0001", "agent_id": "001"}], cve_summary)
+    manager.process_cycle([{"cve_id": "CVE-2026-0001", "agent_id": "001"}], cve_summary)
+
+    assert len(manager.messages) == 1
+    assert state.last_alert_type_sent_at("cycle") is not None
+
+
+def test_alert_interval_allows_cycle_after_elapsed(tmp_path):
+    state = StateStore(tmp_path / "state.json")
+    state.data["last_alert_sent_by_type"] = {"cycle": "2026-01-01T00:00:00+00:00"}
+    manager = CapturingAlertManager(
+        bot_token="",
+        chat_id="",
+        thresholds={"send_all_alerts": True, "alert_interval_seconds": 1},
+        state=state,
+    )
+    cve_summary = [
+        {
+            "cve_id": "CVE-2026-0001",
+            "priority": "P0",
+            "kev": False,
+            "epss_score": 0.8,
+            "cvss_score": 9.0,
+            "affected_hosts_count": 1,
+            "affected_packages": ["openssl"],
+            "risk_score": 90.0,
+        }
+    ]
+
+    manager.process_cycle([{"cve_id": "CVE-2026-0001", "agent_id": "001"}], cve_summary)
+
+    assert len(manager.messages) == 1
+
+
+def test_alert_interval_zero_keeps_send_all_behavior(tmp_path):
+    state = StateStore(tmp_path / "state.json")
+    manager = CapturingAlertManager(
+        bot_token="",
+        chat_id="",
+        thresholds={"send_all_alerts": True, "alert_interval_seconds": 0},
+        state=state,
+    )
+    cve_summary = [
+        {
+            "cve_id": "CVE-2026-0001",
+            "priority": "P0",
+            "kev": False,
+            "epss_score": 0.8,
+            "cvss_score": 9.0,
+            "affected_hosts_count": 1,
+            "affected_packages": ["openssl"],
+            "risk_score": 90.0,
+        }
+    ]
+
+    manager.process_cycle([{"cve_id": "CVE-2026-0001", "agent_id": "001"}], cve_summary)
+    manager.process_cycle([{"cve_id": "CVE-2026-0001", "agent_id": "001"}], cve_summary)
+
+    assert len(manager.messages) == 2
+
+
+def test_new_agent_baseline_is_not_blocked_by_cycle_alert_interval(tmp_path):
+    state = StateStore(tmp_path / "state.json")
+    state.mark_alert_type_sent("cycle")
+    manager = CapturingAlertManager(
+        bot_token="",
+        chat_id="",
+        thresholds={"alert_interval_seconds": 3600},
+        state=state,
+    )
+
+    manager.process_new_agent_baseline(
+        "002",
+        "ubuntu-new",
+        [
+            {
+                "cve_id": "CVE-2026-0001",
+                "priority": "P0",
+                "kev": True,
+                "epss_score": 0.1,
+                "cvss_score": 7.8,
+                "package_name": "kernel",
+                "risk_score": 80.0,
+            }
+        ],
+    )
+
+    assert len(manager.messages) == 1
+    assert "New agent baseline" in manager.messages[0]
 
 
 def test_dry_run_alert_renders_readable_block(tmp_path, capsys):

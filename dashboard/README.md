@@ -1,6 +1,6 @@
 # Wazuh Vulnerability Enrichment Dashboard
 
-This dashboard is intentionally small. It keeps only the two views needed to answer the operational question: which public-PoC CVEs are impacting this system, and which hosts/packages are affected?
+This dashboard is intentionally small. It keeps only the views needed to answer the operational question: which dangerous CVEs are impacting this system, can they be exploited, did the vendor confirm impact, and should the system be patched now?
 
 It reads only:
 
@@ -24,8 +24,8 @@ The import creates 7 saved objects:
 - Data view: `wazuh-vuln-enriched-*` with time field `enriched_at`
 - Data view: `wazuh-vuln-host-cve-impact-*`
 - Visualization: `Impact Filters`
-- Search: `Public PoC CVEs Impacting This System`
-- Search: `Hosts Affected by Public PoC CVEs`
+- Search: `Dangerous CVEs Impacting This System`
+- Search: `Hosts Affected by Dangerous CVEs`
 - Dashboard: `Wazuh Vulnerability Enrichment Overview`
 
 Rebuild the NDJSON after editing definitions:
@@ -68,40 +68,41 @@ Data view: `wazuh-vuln-host-cve-impact-*`
 
 Controls:
 
-- `Public PoC CVE impacting system`: dropdown on `impact_cve_id.keyword`.
-- `Host impacted by public PoC`: dropdown on `impact_host.keyword`.
+- `Dangerous CVE impacting system`: dropdown on `impact_cve_id.keyword`.
+- `Host impacted by dangerous CVE`: dropdown on `impact_host.keyword`.
 - `Ubuntu verification status`: dropdown on `verification_status.keyword`.
 - `Fix status`: dropdown on `fix_status.keyword`.
 - `Patch decision`: dropdown on `patch_decision.keyword`.
 
-These fields are only written when `public_poc:true`, so the dropdowns only contain public-PoC CVEs and hosts currently affected by them.
+These fields come from `wazuh-vuln-host-cve-impact-*`, which has one row per impacted CVE/host pair.
 
-### Public PoC CVEs Impacting This System
+### Dangerous CVEs Impacting This System
 
 Data view: `wazuh-vuln-cve-summary-*`
 
 Filters:
 
-- `public_poc:true`
 - `affected_hosts_count >= 1`
+- query: `patch_decision:patch_now or patch_decision:needs_review or kev:true or public_poc:true or epss_score >= 0.7`
 
 Columns:
 
 - `cve_id`
-- `priority`
 - `patch_decision`
-- `kev`
-- `public_poc`
-- `poc_count`
-- `epss_score`
-- `cvss_score`
-- `affected_hosts_count`
-- `affected_packages`
+- `impact_assessment`
 - `verification_status`
 - `exploitability_status`
-- `exposure_status`
-- `impact_assessment`
+- `kev`
+- `public_poc`
 - `fix_available`
+- `vendor_fixed_version`
+- `recommended_action`
+- `affected_hosts_count`
+- `affected_packages`
+- `priority`
+- `epss_score`
+- `cvss_score`
+- `exposure_status`
 - `vendor_fixed_version`
 - `vendor_advisory_url`
 - `vendor_severity`
@@ -110,44 +111,45 @@ Columns:
 - `reason`
 - `recommended_action`
 
-### Hosts Affected By Public PoC CVEs
+### Hosts Affected By Dangerous CVEs
 
 Data view: `wazuh-vuln-host-cve-impact-*`
 
-Filter:
+Query:
 
-- `public_poc:true`
+- `patch_decision:patch_now or patch_decision:needs_review or kev:true or public_poc:true or epss_score >= 0.7`
 
 Columns:
 
 - `cve_id`
-- `priority`
 - `patch_decision`
+- `impact_assessment`
+- `verification_status`
+- `exploitability_status`
 - `kev`
 - `public_poc`
-- `poc_count`
+- `fix_available`
+- `vendor_fixed_version`
+- `recommended_action`
 - `agent_id`
 - `agent_name`
 - `agent_ip`
-- `os_name`
-- `os_version`
 - `affected_packages`
 - `affected_package_versions`
-- `verification_status`
-- `exploitability_status`
+- `priority`
+- `epss_score`
+- `cvss_score`
+- `os_name`
+- `os_version`
 - `exposure_status`
-- `impact_assessment`
-- `fix_available`
 - `vendor_fixed_version`
 - `vendor_advisory_url`
 - `vendor_severity`
 - `vendor_status`
 - `finding_count`
-- `epss_score`
-- `cvss_score`
 - `last_detected_at`
+- `poc_count`
 - `poc_references`
-- `recommended_action`
 
 ## Agent IP
 

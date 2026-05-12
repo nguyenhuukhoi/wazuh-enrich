@@ -501,6 +501,7 @@ ALERT_THRESHOLDS:
   send_all_impacted_cves: false
   send_all_alerts: false
   public_poc_only: false
+  alert_interval_seconds: 0
   max_top_cves: 10
 ```
 
@@ -531,25 +532,34 @@ ALERT_THRESHOLDS:
   send_all_impacted_cves: true
   send_all_alerts: true
   public_poc_only: true
+  alert_interval_seconds: 3600
   max_top_cves: 0
 ```
+
+`alert_interval_seconds` is the minimum gap between two aggregate cycle alerts. It only applies to the normal cycle alert from `process_cycle`; new-agent baseline alerts are still sent immediately when detected. The first eligible alert after service start is sent immediately if `STATE_FILE` has no previous `last_alert_sent_by_type.cycle`. If the service is restarted and the previous cycle alert is still inside the interval window, the restart will not spam Telegram.
+
+This option does not create a separate alert scheduler. Alerts are evaluated when enrichment/inventory processing runs. If `alert_interval_seconds` is smaller than `SCHEDULE.enrichment_seconds`, the real resend pace is still limited by the enrichment cycle.
 
 `max_top_cves: 0` means include every matched CVE in the Telegram message. Be careful with this on large environments because Telegram messages can become noisy or exceed message limits.
 
 Example:
 
 ```text
-CRITICAL - Exploited CVEs detected
+CRITICAL - Dangerous CVEs impacting system
 
 Summary:
 - Affected agents: 2
+- Patch now CVEs: 2
+- Needs review CVEs: 1
+- Vendor confirmed affected: 2
+- Fix available CVEs: 2
 - P0 CVEs: 4
 - KEV CVEs: 2
 - Public PoC CVEs: 1
 - EPSS >= 0.7: 3
 
-Top CVEs:
-1. CVE-2025-0001 | KEV=yes | PoC=yes | EPSS=0.94 | CVSS=9.8 | hosts=72 | package=openssl
+Top CVEs to decide patching:
+1. CVE-2025-0001 | patch=patch_now | Ubuntu=confirmed_affected | exploit=exploited_in_wild | KEV=yes | PoC=yes | EPSS=0.94 | CVSS=9.8 | hosts=72 | package=openssl | fix=yes | action=Patch now.
 ```
 
 ## Dashboard
@@ -565,8 +575,8 @@ wazuh-vuln-host-cve-impact-* time field: updated_at
 The imported dashboard intentionally contains only the operational panels:
 
 - Impact Filters.
-- Public PoC CVEs Impacting This System.
-- Hosts Affected by Public PoC CVEs.
+- Dangerous CVEs Impacting This System.
+- Hosts Affected by Dangerous CVEs.
 
 Dashboard import is optional and separate from enrichment:
 
@@ -574,43 +584,46 @@ Dashboard import is optional and separate from enrichment:
 python3 dashboard/manage_saved_objects.py reimport --no-verify-ssl
 ```
 
-The filter and host impact panels use `wazuh-vuln-host-cve-impact-*`. This index has one document per `cve_id + agent_id`, so the host table is not duplicated by package/version. It has two dropdowns:
+The filter and host impact panels use `wazuh-vuln-host-cve-impact-*`. This index has one document per `cve_id + agent_id`, so the host table is not duplicated by package/version. It has dropdowns for:
 
 ```text
 impact_cve_id
 impact_host
+patch_decision
+verification_status
+fix_status
 ```
 
-Those fields are only written for findings where `public_poc:true`, so the dropdowns do not list global/non-impact CVEs.
+Those fields are written only for CVEs that Wazuh has detected on your agents, so the dropdowns do not list global/non-impact CVEs.
 The imported controls use the `.keyword` subfields for terms aggregation.
 The enriched data view uses `enriched_at` as its time field so host impact tables show the latest enrichment state instead of hiding older findings by `detected_at`.
 
 The CVE summary panel reads `wazuh-vuln-cve-summary-*` with:
 
 ```text
-public_poc:true and affected_hosts_count > 0
+affected_hosts_count > 0 and (patch_decision:patch_now or patch_decision:needs_review or kev:true or public_poc:true or epss_score >= 0.7)
 ```
 
-This shows only public-PoC CVEs that Wazuh has actually detected on your agents, not a global internet PoC list.
+This shows dangerous CVEs that Wazuh has actually detected on your agents, not a global internet CVE list.
 
 ## Quick Checks
 
-Public PoC CVEs impacting this system:
+Dangerous CVEs impacting this system:
 
 ```bash
 curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
   "$WAZUH_INDEXER_URL/wazuh-vuln-cve-summary-*/_search" \
   -H 'Content-Type: application/json' \
-  -d '{"size":25,"query":{"bool":{"filter":[{"term":{"public_poc":true}},{"range":{"affected_hosts_count":{"gte":1}}}]}},"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
+  -d '{"size":25,"query":{"bool":{"should":[{"term":{"patch_decision":"patch_now"}},{"term":{"patch_decision":"needs_review"}},{"term":{"kev":true}},{"term":{"public_poc":true}},{"range":{"epss_score":{"gte":0.7}}}],"minimum_should_match":1,"filter":[{"range":{"affected_hosts_count":{"gte":1}}}]}},"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
 ```
 
-Hosts affected by public PoC CVEs:
+Hosts affected by dangerous CVEs:
 
 ```bash
 curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
-  "$WAZUH_INDEXER_URL/wazuh-vuln-enriched-*/_search" \
+  "$WAZUH_INDEXER_URL/wazuh-vuln-host-cve-impact-*/_search" \
   -H 'Content-Type: application/json' \
-  -d '{"size":100,"query":{"term":{"public_poc":true}},"sort":[{"risk_score":"desc"}]}'
+  -d '{"size":100,"query":{"bool":{"should":[{"term":{"patch_decision":"patch_now"}},{"term":{"patch_decision":"needs_review"}},{"term":{"kev":true}},{"term":{"public_poc":true}},{"range":{"epss_score":{"gte":0.7}}}],"minimum_should_match":1}},"sort":[{"risk_score":"desc"}]}'
 ```
 
 ## Troubleshooting
