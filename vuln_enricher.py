@@ -70,13 +70,6 @@ def latest_indices(settings: Settings) -> dict[str, str]:
     }
 
 
-def ensure_latest_indices(client: WazuhIndexerClient, settings: Settings) -> dict[str, str]:
-    indices = latest_indices(settings)
-    for index in indices.values():
-        client.ensure_index(index)
-    return indices
-
-
 def replace_latest_indices(
     client: WazuhIndexerClient,
     settings: Settings,
@@ -85,7 +78,7 @@ def replace_latest_indices(
     host_summaries: list[dict[str, Any]],
     host_cve_impacts: list[dict[str, Any]],
 ) -> dict[str, str]:
-    indices = ensure_latest_indices(client, settings)
+    indices = latest_indices(settings)
     client.delete_by_query(indices["enriched_index"], {"match_all": {}})
     client.bulk_index(indices["enriched_index"], enriched_docs, ["cve_id", "agent_id", "package_name", "package_version"])
     client.delete_by_query(indices["cve_summary_index"], {"match_all": {}})
@@ -224,7 +217,6 @@ def enrich(
 
     if not dry_run:
         client.ensure_templates()
-        ensure_latest_indices(client, settings)
         client.bulk_index(
             enriched_index,
             enriched_docs,
@@ -327,7 +319,6 @@ def enrich_agent_incremental(
 
     if not dry_run:
         client.ensure_templates()
-        ensure_latest_indices(client, settings)
         client.delete_by_query(enriched_index, {"term": {"agent_id": agent_id}})
         client.bulk_index(enriched_index, new_docs, ["cve_id", "agent_id", "package_name", "package_version"])
         client.delete_by_query(latest["enriched_index"], {"term": {"agent_id": agent_id}})
