@@ -12,6 +12,9 @@ from requests import Response
 DEFAULT_DASHBOARD_TITLE = "Wazuh Vulnerability Enrichment Overview"
 DEFAULT_NDJSON = Path(__file__).with_name("wazuh-vuln-enrichment.ndjson")
 RELATED_INDEX_PATTERNS = [
+    "wazuh-vuln-enriched-latest",
+    "wazuh-vuln-cve-summary-latest",
+    "wazuh-vuln-host-cve-impact-latest",
     "wazuh-vuln-enriched-*",
     "wazuh-vuln-cve-summary-*",
     "wazuh-vuln-host-summary-*",

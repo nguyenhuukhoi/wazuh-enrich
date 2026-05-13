@@ -1,13 +1,13 @@
 {
   "overview_p0_cves": {
-    "index": "wazuh-vuln-cve-summary-*",
+    "index": "wazuh-vuln-cve-summary-latest",
     "body": {
       "size": 0,
       "query": { "term": { "priority": "P0" } }
     }
   },
   "top_risk_cves": {
-    "index": "wazuh-vuln-cve-summary-*",
+    "index": "wazuh-vuln-cve-summary-latest",
     "body": {
       "size": 10,
       "sort": [
@@ -35,7 +35,7 @@
     }
   },
   "top_hosts": {
-    "index": "wazuh-vuln-host-summary-*",
+    "index": "wazuh-vuln-host-summary-latest",
     "body": {
       "size": 10,
       "sort": [
@@ -51,6 +51,7 @@
         "total_cves",
         "patch_now_count",
         "patch_scheduled_count",
+        "cleanup_old_kernel_count",
         "needs_review_count",
         "p0_count",
         "p1_count",
@@ -62,7 +63,7 @@
     }
   },
   "cve_drill_down": {
-    "index": "wazuh-vuln-enriched-*",
+    "index": "wazuh-vuln-enriched-latest",
     "body": {
       "size": 1000,
       "query": { "term": { "cve_id": "CVE-2026-0000" } },
@@ -70,7 +71,7 @@
     }
   },
   "host_drill_down": {
-    "index": "wazuh-vuln-enriched-*",
+    "index": "wazuh-vuln-enriched-latest",
     "body": {
       "size": 1000,
       "query": { "term": { "agent_id": "001" } },
@@ -78,7 +79,7 @@
     }
   },
   "critical_real_impact_cves": {
-    "index": "wazuh-vuln-cve-summary-*",
+    "index": "wazuh-vuln-cve-summary-latest",
     "body": {
       "size": 25,
       "query": {
@@ -123,7 +124,7 @@
     }
   },
   "needs_review_cves": {
-    "index": "wazuh-vuln-cve-summary-*",
+    "index": "wazuh-vuln-cve-summary-latest",
     "body": {
       "size": 25,
       "query": {
@@ -177,13 +178,13 @@
     }
   },
   "patch_scheduled_cves": {
-    "index": "wazuh-vuln-cve-summary-*",
+    "index": "wazuh-vuln-cve-summary-latest",
     "body": {
       "size": 25,
       "query": {
         "bool": {
           "filter": [
-            { "term": { "patch_decision": "patch_scheduled" } },
+            { "terms": { "patch_decision": ["patch_scheduled", "cleanup_old_kernel"] } },
             { "range": { "affected_hosts_count": { "gte": 1 } } }
           ]
         }

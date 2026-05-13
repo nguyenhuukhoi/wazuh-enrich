@@ -43,9 +43,13 @@ wazuh-vuln-enriched-YYYY.MM.DD
 wazuh-vuln-cve-summary-YYYY.MM.DD
 wazuh-vuln-host-summary-YYYY.MM.DD
 wazuh-vuln-host-cve-impact-YYYY.MM.DD
+wazuh-vuln-enriched-latest
+wazuh-vuln-cve-summary-latest
+wazuh-vuln-host-summary-latest
+wazuh-vuln-host-cve-impact-latest
 ```
 
-Dashboard nên đọc các index này, không đọc trực tiếp `wazuh-states-vulnerabilities-*`.
+Daily index giữ lịch sử theo ngày. `*-latest` giữ trạng thái hiện tại và là index dashboard nên đọc. Dashboard không nên đọc trực tiếp `wazuh-states-vulnerabilities-*`.
 
 ## Incremental Theo Nhịp Wazuh
 
@@ -280,11 +284,21 @@ recommended_action
 
 Kernel Ubuntu: Wazuh thường báo binary package như `linux-image-6.8.0-36-generic`, còn Canonical hay tracking CVE theo source package `linux`. Enricher map các kernel binary package phổ biến về `linux` để tránh false `vendor_not_found`.
 
+Kernel có một rule riêng rất quan trọng. Sau khi bạn patch và reboot sang kernel mới, package kernel cũ như `linux-image-6.8.0-36-generic` có thể vẫn còn installed. Wazuh vẫn có thể báo CVE trên package cũ đó. Khi enricher thấy package kernel bị CVE không phải kernel đang chạy, nó sẽ không coi là `patch_now`, mà gắn:
+
+```text
+exposure_status: non_running_kernel_installed
+patch_decision: cleanup_old_kernel
+```
+
+Ý nghĩa: host đang không chạy kernel vulnerable đó, nhưng bạn nên giữ kernel đã fix làm default boot và purge old `linux-image-*` / `linux-modules-*` packages. Sau khi xóa kernel cũ và Wazuh inventory/vulnerability detection chạy lại, finding đó mới biến mất khỏi Wazuh.
+
 `patch_decision` là field chính để quyết định có nên patch hệ thống không:
 
 ```text
 patch_now       -> vendor xác nhận affected và threat/exposure cao
 patch_scheduled -> vendor xác nhận affected và đã có fixed version
+cleanup_old_kernel -> kernel package cũ còn installed nhưng không phải kernel đang chạy
 monitor         -> affected hoặc có thể affected, nhưng exploitability thấp hoặc chưa có fix
 no_action       -> installed version đã bằng hoặc cao hơn fixed version của Ubuntu
 needs_review    -> Wazuh báo finding nhưng vendor metadata chưa xác nhận đúng package/release
@@ -295,7 +309,7 @@ Logic này cố ý thận trọng:
 - `KEV=yes` nghĩa là đã bị khai thác ngoài thực tế, nên ưu tiên hơn EPSS thấp.
 - `public_poc=yes` chỉ tăng độ gấp sau khi CVE đó được xác định đang impact hệ thống.
 - `vendor_not_found` nhưng threat cao sẽ thành `needs_review`, không tự động coi là `patch_now`.
-- Kernel finding sẽ gấp hơn nếu package có vẻ khớp với running kernel.
+- Kernel finding chỉ thật sự gấp nếu vulnerable package khớp với running kernel. Kernel cũ không còn running sẽ được xem là việc cleanup, không phải runtime critical impact.
 
 ## Chạy Lần Đầu
 
@@ -477,7 +491,7 @@ ALERT_THRESHOLDS:
 ```text
 critical_real_impact -> patch_now + vendor confirmed/likely affected + có exploit signal
 needs_review         -> CVE có threat cao nhưng vendor/package confirmation chưa đủ
-patch_scheduled      -> vendor xác nhận affected, nên lên lịch patch
+patch_scheduled      -> vendor xác nhận affected, nên lên lịch patch, hoặc cần cleanup kernel cũ
 all                  -> mọi CVE đủ điều kiện alert
 ```
 
@@ -547,10 +561,19 @@ Top CVEs to decide patching:
 Tạo data view:
 
 ```text
-wazuh-vuln-enriched-*        time field: enriched_at
-wazuh-vuln-cve-summary-*     time field: updated_at
-wazuh-vuln-host-cve-impact-* time field: updated_at
+wazuh-vuln-enriched-latest        time field: enriched_at
+wazuh-vuln-cve-summary-latest     time field: updated_at
+wazuh-vuln-host-cve-impact-latest time field: updated_at
 ```
+
+Dashboard dùng `*-latest` để nhìn trạng thái hiện tại và tránh duplicate cùng một CVE qua nhiều daily index. Daily index `YYYY.MM.DD` vẫn được ghi để lưu lịch sử/trend.
+
+Cách hiểu đơn giản:
+
+- `wazuh-vuln-*-YYYY.MM.DD`: dữ liệu lịch sử theo ngày.
+- `wazuh-vuln-*-latest`: snapshot hiện tại, được replace sau mỗi lần enrich/update thành công.
+- Dashboard/filter dùng `*-latest`.
+- Alert giữ logic hiện tại: alert được tính từ cycle enrichment hiện tại, không scan toàn bộ daily summary index.
 
 Dashboard import là tùy chọn và tách khỏi flow enrichment:
 
@@ -571,7 +594,7 @@ Critical Real Impact CVEs:
 
 ```bash
 curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
-  "$WAZUH_INDEXER_URL/wazuh-vuln-cve-summary-*/_search" \
+  "$WAZUH_INDEXER_URL/wazuh-vuln-cve-summary-latest/_search" \
   -H 'Content-Type: application/json' \
   -d '{"size":25,"query":{"bool":{"filter":[{"term":{"patch_decision":"patch_now"}},{"terms":{"verification_status":["confirmed_affected","likely_affected"]}},{"range":{"affected_hosts_count":{"gte":1}}}],"should":[{"term":{"exploitability_status":"exploited_in_wild"}},{"term":{"public_poc":true}},{"range":{"epss_score":{"gte":0.7}}}],"minimum_should_match":1}},"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
 ```
@@ -580,7 +603,7 @@ Needs Review CVEs:
 
 ```bash
 curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
-  "$WAZUH_INDEXER_URL/wazuh-vuln-cve-summary-*/_search" \
+  "$WAZUH_INDEXER_URL/wazuh-vuln-cve-summary-latest/_search" \
   -H 'Content-Type: application/json' \
   -d '{"size":25,"query":{"bool":{"filter":[{"range":{"affected_hosts_count":{"gte":1}}}],"should":[{"term":{"patch_decision":"needs_review"}},{"bool":{"filter":[{"terms":{"verification_status":["vendor_not_found","needs_manual_check","not_verified"]}}],"should":[{"term":{"kev":true}},{"term":{"public_poc":true}},{"range":{"epss_score":{"gte":0.7}}}],"minimum_should_match":1}}],"minimum_should_match":1}},"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
 ```

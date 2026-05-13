@@ -57,6 +57,39 @@ LOG = logging.getLogger("vuln_enricher")
 RELOAD_REQUESTED = False
 
 
+def latest_index(prefix: str) -> str:
+    return f"{prefix}-latest"
+
+
+def latest_indices(settings: Settings) -> dict[str, str]:
+    return {
+        "enriched_index": latest_index(settings.enriched_index_prefix),
+        "cve_summary_index": latest_index(settings.cve_summary_index_prefix),
+        "host_summary_index": latest_index(settings.host_summary_index_prefix),
+        "host_cve_impact_index": latest_index(settings.host_cve_impact_index_prefix),
+    }
+
+
+def replace_latest_indices(
+    client: WazuhIndexerClient,
+    settings: Settings,
+    enriched_docs: list[dict[str, Any]],
+    cve_summaries: list[dict[str, Any]],
+    host_summaries: list[dict[str, Any]],
+    host_cve_impacts: list[dict[str, Any]],
+) -> dict[str, str]:
+    indices = latest_indices(settings)
+    client.delete_by_query(indices["enriched_index"], {"match_all": {}})
+    client.bulk_index(indices["enriched_index"], enriched_docs, ["cve_id", "agent_id", "package_name", "package_version"])
+    client.delete_by_query(indices["cve_summary_index"], {"match_all": {}})
+    client.bulk_index(indices["cve_summary_index"], cve_summaries, ["cve_id"])
+    client.delete_by_query(indices["host_summary_index"], {"match_all": {}})
+    client.bulk_index(indices["host_summary_index"], host_summaries, ["agent_id"])
+    client.delete_by_query(indices["host_cve_impact_index"], {"match_all": {}})
+    client.bulk_index(indices["host_cve_impact_index"], host_cve_impacts, ["cve_id", "agent_id"])
+    return indices
+
+
 def request_reload(_signum: int, _frame: Any) -> None:
     global RELOAD_REQUESTED
     RELOAD_REQUESTED = True
@@ -180,6 +213,7 @@ def enrich(
     cve_summary_index = client.index_name(settings.cve_summary_index_prefix)
     host_summary_index = client.index_name(settings.host_summary_index_prefix)
     host_cve_impact_index = client.index_name(settings.host_cve_impact_index_prefix)
+    latest = latest_indices(settings)
 
     if not dry_run:
         client.ensure_templates()
@@ -188,10 +222,16 @@ def enrich(
             enriched_docs,
             ["cve_id", "agent_id", "package_name", "package_version"],
         )
+        if not full:
+            client.bulk_index(
+                latest["enriched_index"],
+                enriched_docs,
+                ["cve_id", "agent_id", "package_name", "package_version"],
+            )
 
     summary_source = enriched_docs
     if not full and not dry_run:
-        summary_source = list(client.iter_index_sources(enriched_index))
+        summary_source = list(client.iter_index_sources(latest["enriched_index"]))
 
     cve_summaries = build_cve_summary(summary_source)
     host_summaries = build_host_summary(summary_source)
@@ -202,6 +242,7 @@ def enrich(
         client.bulk_index(cve_summary_index, cve_summaries, ["cve_id"])
         client.bulk_index(host_summary_index, host_summaries, ["agent_id"])
         client.bulk_index(host_cve_impact_index, host_cve_impacts, ["cve_id", "agent_id"])
+        replace_latest_indices(client, settings, summary_source, cve_summaries, host_summaries, host_cve_impacts)
 
     if send_alerts:
         alerts = AlertManager(
@@ -226,6 +267,7 @@ def enrich(
         "cve_summary_index": cve_summary_index,
         "host_summary_index": host_summary_index,
         "host_cve_impact_index": host_cve_impact_index,
+        "latest_indices": latest,
         "dry_run": dry_run,
     }
     LOG.info("enrichment_done %s", json.dumps(result, sort_keys=True))
@@ -246,8 +288,9 @@ def enrich_agent_incremental(
     cve_summary_index = client.index_name(settings.cve_summary_index_prefix)
     host_summary_index = client.index_name(settings.host_summary_index_prefix)
     host_cve_impact_index = client.index_name(settings.host_cve_impact_index_prefix)
+    latest = latest_indices(settings)
 
-    old_docs = list(client.iter_index_sources(enriched_index, {"term": {"agent_id": agent_id}}))
+    old_docs = list(client.iter_index_sources(latest["enriched_index"], {"term": {"agent_id": agent_id}}))
     old_cves = {str(doc.get("cve_id", "")) for doc in old_docs if doc.get("cve_id")}
     agent_metadata = client.agent_metadata()
     new_docs: list[dict[str, Any]] = []
@@ -278,27 +321,35 @@ def enrich_agent_incremental(
         client.ensure_templates()
         client.delete_by_query(enriched_index, {"term": {"agent_id": agent_id}})
         client.bulk_index(enriched_index, new_docs, ["cve_id", "agent_id", "package_name", "package_version"])
+        client.delete_by_query(latest["enriched_index"], {"term": {"agent_id": agent_id}})
+        client.bulk_index(latest["enriched_index"], new_docs, ["cve_id", "agent_id", "package_name", "package_version"])
 
-        current_agent_docs = list(client.iter_index_sources(enriched_index, {"term": {"agent_id": agent_id}}))
+        current_agent_docs = list(client.iter_index_sources(latest["enriched_index"], {"term": {"agent_id": agent_id}}))
         host_summaries = build_host_summary(current_agent_docs)
         if host_summaries:
             client.bulk_index(host_summary_index, host_summaries, ["agent_id"])
+            client.bulk_index(latest["host_summary_index"], host_summaries, ["agent_id"])
         else:
             client.delete_by_query(host_summary_index, {"term": {"agent_id": agent_id}})
+            client.delete_by_query(latest["host_summary_index"], {"term": {"agent_id": agent_id}})
 
         client.delete_by_query(host_cve_impact_index, {"term": {"agent_id": agent_id}})
+        client.delete_by_query(latest["host_cve_impact_index"], {"term": {"agent_id": agent_id}})
         host_cve_impacts = build_host_cve_impact_summary(current_agent_docs)
         client.bulk_index(host_cve_impact_index, host_cve_impacts, ["cve_id", "agent_id"])
+        client.bulk_index(latest["host_cve_impact_index"], host_cve_impacts, ["cve_id", "agent_id"])
 
         cve_summaries = []
         for cve_id in affected_cves:
-            docs = list(client.iter_index_sources(enriched_index, {"term": {"cve_id": cve_id}}))
+            docs = list(client.iter_index_sources(latest["enriched_index"], {"term": {"cve_id": cve_id}}))
             summaries = build_cve_summary(docs)
             if summaries:
                 cve_summaries.extend(summaries)
             else:
                 client.delete_by_query(cve_summary_index, {"term": {"cve_id": cve_id}})
+                client.delete_by_query(latest["cve_summary_index"], {"term": {"cve_id": cve_id}})
         client.bulk_index(cve_summary_index, cve_summaries, ["cve_id"])
+        client.bulk_index(latest["cve_summary_index"], cve_summaries, ["cve_id"])
     else:
         current_agent_docs = new_docs
         cve_summaries = build_cve_summary(new_docs)

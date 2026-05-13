@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from state import StateStore
-from vuln_enricher import daily_full_refresh_required, mark_daily_full_refresh
+from vuln_enricher import daily_full_refresh_required, latest_index, latest_indices, mark_daily_full_refresh
 
 
 class FakeClient:
@@ -58,3 +58,19 @@ def test_daily_full_refresh_skipped_and_marked_when_today_index_has_docs(tmp_pat
     assert count == 25
     assert state.data["last_daily_full_refresh_index"] == "wazuh-vuln-enriched-2026.05.11"
 
+
+def test_latest_indices_use_stable_dashboard_index_names():
+    settings = SimpleNamespace(
+        enriched_index_prefix="wazuh-vuln-enriched",
+        cve_summary_index_prefix="wazuh-vuln-cve-summary",
+        host_summary_index_prefix="wazuh-vuln-host-summary",
+        host_cve_impact_index_prefix="wazuh-vuln-host-cve-impact",
+    )
+
+    assert latest_index("wazuh-vuln-enriched") == "wazuh-vuln-enriched-latest"
+    assert latest_indices(settings) == {
+        "enriched_index": "wazuh-vuln-enriched-latest",
+        "cve_summary_index": "wazuh-vuln-cve-summary-latest",
+        "host_summary_index": "wazuh-vuln-host-summary-latest",
+        "host_cve_impact_index": "wazuh-vuln-host-cve-impact-latest",
+    }

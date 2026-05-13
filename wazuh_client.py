@@ -154,6 +154,7 @@ class WazuhIndexerClient:
                     "os_version": {"type": "keyword"},
                     "patch_now_count": {"type": "integer"},
                     "patch_scheduled_count": {"type": "integer"},
+                    "cleanup_old_kernel_count": {"type": "integer"},
                     "needs_review_count": {"type": "integer"},
                     "total_cves": {"type": "integer"},
                     "p0_count": {"type": "integer"},

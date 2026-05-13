@@ -15,9 +15,10 @@ VERIFICATION_ORDER = {
 PATCH_DECISION_ORDER = {
     "patch_now": 0,
     "patch_scheduled": 1,
-    "needs_review": 2,
-    "monitor": 3,
-    "no_action": 4,
+    "cleanup_old_kernel": 2,
+    "needs_review": 3,
+    "monitor": 4,
+    "no_action": 5,
 }
 
 
@@ -149,6 +150,7 @@ def build_host_summary(enriched_docs: list[dict[str, Any]]) -> list[dict[str, An
                 "total_cves": len(cves),
                 "patch_now_count": len({doc["cve_id"] for doc in docs if doc.get("patch_decision") == "patch_now"}),
                 "patch_scheduled_count": len({doc["cve_id"] for doc in docs if doc.get("patch_decision") == "patch_scheduled"}),
+                "cleanup_old_kernel_count": len({doc["cve_id"] for doc in docs if doc.get("patch_decision") == "cleanup_old_kernel"}),
                 "needs_review_count": len({doc["cve_id"] for doc in docs if doc.get("patch_decision") == "needs_review"}),
                 "p0_count": len({doc["cve_id"] for doc in docs if doc.get("priority") == "P0"}),
                 "p1_count": len({doc["cve_id"] for doc in docs if doc.get("priority") == "P1"}),

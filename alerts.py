@@ -13,8 +13,9 @@ PATCH_DECISION_ORDER = {
     "patch_now": 0,
     "needs_review": 1,
     "patch_scheduled": 2,
-    "monitor": 3,
-    "no_action": 4,
+    "cleanup_old_kernel": 3,
+    "monitor": 4,
+    "no_action": 5,
 }
 ALERT_SCOPES = {"critical_real_impact", "needs_review", "patch_scheduled", "all"}
 
@@ -235,7 +236,7 @@ class AlertManager:
                 and (bool(cve.get("kev")) or bool(cve.get("public_poc")) or epss >= epss_high)
             )
         if self.alert_scope == "patch_scheduled":
-            return patch == "patch_scheduled"
+            return patch in {"patch_scheduled", "cleanup_old_kernel"}
         return False
 
     def _scope_label(self) -> str:

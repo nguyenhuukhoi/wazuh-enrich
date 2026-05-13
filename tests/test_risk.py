@@ -8,6 +8,7 @@ from risk import (
     first_valid_ip,
     normalize_finding,
     patch_decision,
+    kernel_release_from_package,
     ubuntu_package_candidates,
     verify_ubuntu_impact,
 )
@@ -281,3 +282,56 @@ def test_patch_decision_no_action_when_installed_version_is_fixed():
 
 def test_exposure_status_detects_running_kernel():
     assert exposure_status("linux-image-6.8.0-36-generic", "6.8.0-36-generic") == "running_kernel"
+
+
+def test_exposure_status_detects_non_running_kernel_package():
+    assert (
+        exposure_status("linux-image-6.8.0-36-generic", "6.8.0-111-generic")
+        == "non_running_kernel_installed"
+    )
+    assert kernel_release_from_package("linux-modules-extra-6.8.0-36-generic") == "6.8.0-36-generic"
+
+
+def test_patch_decision_cleanup_for_confirmed_non_running_kernel():
+    assert (
+        patch_decision(
+            verification_status="confirmed_affected",
+            fix_available=True,
+            kev=True,
+            public_poc=True,
+            epss_score=0.9,
+            cvss_score=9.8,
+            exposure="non_running_kernel_installed",
+        )
+        == "cleanup_old_kernel"
+    )
+
+
+def test_normalize_finding_marks_old_kernel_for_cleanup_after_reboot_to_fixed_kernel():
+    source = {
+        "agent": {"id": "001", "name": "ubuntu-1"},
+        "host": {"os": {"name": "Ubuntu", "version": "24.04", "kernel": "6.8.0-111-generic"}},
+        "vulnerability": {"id": "CVE-2026-23231", "score": {"base": 7.8}},
+        "package": {"name": "linux-image-6.8.0-36-generic", "version": "6.8.0-36.36"},
+    }
+    records = {
+        ("noble", "CVE-2026-23231", "linux"): UbuntuOsvRecord(
+            cve_id="CVE-2026-23231",
+            release="noble",
+            package_name="linux",
+            fixed_version="6.8.0-111.111",
+        )
+    }
+
+    doc = normalize_finding(
+        source,
+        kev_cves={"CVE-2026-23231"},
+        epss_records={},
+        ubuntu_osv_records=records,
+    )
+
+    assert doc is not None
+    assert doc["verification_status"] == "confirmed_affected"
+    assert doc["exposure_status"] == "non_running_kernel_installed"
+    assert doc["patch_decision"] == "cleanup_old_kernel"
+    assert "purge old" in doc["recommended_action"]

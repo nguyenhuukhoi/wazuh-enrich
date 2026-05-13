@@ -18,7 +18,7 @@ NEEDS_REVIEW_QUERY = (
     "((verification_status:vendor_not_found or verification_status:needs_manual_check or verification_status:not_verified) "
     "and (kev:true or public_poc:true or epss_score >= 0.7))"
 )
-PATCH_SCHEDULED_QUERY = "patch_decision:patch_scheduled"
+PATCH_SCHEDULED_QUERY = "patch_decision:patch_scheduled or patch_decision:cleanup_old_kernel"
 
 
 def dumps(value: Any) -> str:
@@ -419,9 +419,9 @@ def build_objects() -> list[dict[str, Any]]:
         "poc_references",
     ]
     return [
-        index_pattern(ENRICHED, "wazuh-vuln-enriched-*", "enriched_at"),
-        index_pattern(CVE_SUMMARY, "wazuh-vuln-cve-summary-*", "updated_at"),
-        index_pattern(HOST_CVE_IMPACT, "wazuh-vuln-host-cve-impact-*", "updated_at"),
+        index_pattern(ENRICHED, "wazuh-vuln-enriched-latest", "enriched_at"),
+        index_pattern(CVE_SUMMARY, "wazuh-vuln-cve-summary-latest", "updated_at"),
+        index_pattern(HOST_CVE_IMPACT, "wazuh-vuln-host-cve-impact-latest", "updated_at"),
         controls_vis("vis-impact-controls", "Impact Filters", HOST_CVE_IMPACT),
         saved_search(
             "search-critical-real-impact",

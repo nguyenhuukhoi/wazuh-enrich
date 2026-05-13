@@ -4,11 +4,12 @@ This dashboard is intentionally small. It keeps only the views needed to answer 
 
 It reads only:
 
-- `wazuh-vuln-cve-summary-*`
-- `wazuh-vuln-enriched-*`
-- `wazuh-vuln-host-cve-impact-*`
+- `wazuh-vuln-cve-summary-latest`
+- `wazuh-vuln-enriched-latest`
+- `wazuh-vuln-host-cve-impact-latest`
 
 Do not build these panels directly on `wazuh-states-vulnerabilities-*` for daily operations.
+Do not point operational panels at `wazuh-vuln-*-*` wildcard daily indices, or the same CVE can appear once per day.
 
 ## Import
 
@@ -20,9 +21,9 @@ dashboard/wazuh-vuln-enrichment.ndjson
 
 The import creates 11 saved objects:
 
-- Data view: `wazuh-vuln-cve-summary-*`
-- Data view: `wazuh-vuln-enriched-*` with time field `enriched_at`
-- Data view: `wazuh-vuln-host-cve-impact-*`
+- Data view: `wazuh-vuln-cve-summary-latest`
+- Data view: `wazuh-vuln-enriched-latest` with time field `enriched_at`
+- Data view: `wazuh-vuln-host-cve-impact-latest`
 - Visualization: `Impact Filters`
 - Search: `Critical Real Impact CVEs`
 - Search: `Hosts - Critical Real Impact`
@@ -68,7 +69,7 @@ If you imported into a non-default tenant, add:
 
 ### Impact Filters
 
-Data view: `wazuh-vuln-host-cve-impact-*`
+Data view: `wazuh-vuln-host-cve-impact-latest`
 
 Controls:
 
@@ -78,11 +79,11 @@ Controls:
 - `Fix status`: dropdown on `fix_status.keyword`.
 - `Patch decision`: dropdown on `patch_decision.keyword`.
 
-These fields come from `wazuh-vuln-host-cve-impact-*`, which has one row per impacted CVE/host pair.
+These fields come from `wazuh-vuln-host-cve-impact-latest`, which has one row per impacted CVE/host pair.
 
 ### Critical Real Impact
 
-Data view: `wazuh-vuln-cve-summary-*`
+Data view: `wazuh-vuln-cve-summary-latest`
 
 Filters:
 
@@ -93,7 +94,7 @@ This is the default alert scope. It means vendor confirms impact and there is an
 
 ### Needs Review
 
-Data view: `wazuh-vuln-cve-summary-*`
+Data view: `wazuh-vuln-cve-summary-latest`
 
 Filters:
 
@@ -104,14 +105,14 @@ This means the CVE has a strong threat signal, but vendor/package confirmation i
 
 ### Patch Scheduled
 
-Data view: `wazuh-vuln-cve-summary-*`
+Data view: `wazuh-vuln-cve-summary-latest`
 
 Filters:
 
 - `affected_hosts_count >= 1`
-- query: `patch_decision:patch_scheduled`
+- query: `patch_decision:patch_scheduled or patch_decision:cleanup_old_kernel`
 
-This means vendor confirms affected and patching should be planned, but it is not classified as immediate critical impact.
+This means vendor confirms affected and patching should be planned, but it is not classified as immediate critical impact. It also includes `cleanup_old_kernel`, where an old vulnerable Ubuntu kernel package is still installed but is not the running kernel.
 
 ### Columns
 
@@ -143,7 +144,7 @@ Columns:
 
 ### Host Tables
 
-Data view: `wazuh-vuln-host-cve-impact-*`
+Data view: `wazuh-vuln-host-cve-impact-latest`
 
 The three host tables mirror the same three CVE groups:
 
@@ -210,8 +211,8 @@ If `agent_ip` is still empty or `0.0.0.0` after `enrich-all`, check that those i
 
 ## Deduplication
 
-The host impact table reads `wazuh-vuln-host-cve-impact-*`, which has one document per `cve_id + agent_id`. Package names and versions are aggregated into list fields, so one CVE affecting the same host through multiple packages does not create duplicate host rows.
+The host impact table reads `wazuh-vuln-host-cve-impact-latest`, which has one document per `cve_id + agent_id`. Package names and versions are aggregated into list fields, so one CVE affecting the same host through multiple packages does not create duplicate host rows. Daily indices keep history, but the dashboard uses `latest` so one CVE does not appear once per daily index.
 
 ## Time Field
 
-The imported `wazuh-vuln-enriched-*` data view uses `enriched_at` as the time field. This keeps the host impact table aligned with the latest enrichment run. If it uses `detected_at`, the dashboard time picker can hide hosts whose vulnerability was detected earlier than the selected time range even though the host is still affected.
+The imported `wazuh-vuln-enriched-latest` data view uses `enriched_at` as the time field. This keeps the host impact table aligned with the latest enrichment run. If it uses `detected_at`, the dashboard time picker can hide hosts whose vulnerability was detected earlier than the selected time range even though the host is still affected.

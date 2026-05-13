@@ -100,14 +100,29 @@ def exploitability_status(kev: bool, public_poc: bool, epss_score: float) -> str
     return "no_known_exploit"
 
 
+def kernel_release_from_package(package_name: str) -> str:
+    match = re.match(r"^linux-(?:image-unsigned|image|modules-extra|modules|headers|tools)-(.+)$", package_name or "")
+    return match.group(1) if match else ""
+
+
+def kernel_release_matches(package_release: str, os_kernel: str) -> bool:
+    return bool(package_release and os_kernel and (os_kernel == package_release or package_release in os_kernel))
+
+
 def exposure_status(package_name: str, os_kernel: str = "") -> str:
     package = package_name or ""
-    if re.match(r"^linux-image-\d", package):
-        kernel_release = package.removeprefix("linux-image-")
-        if os_kernel and (os_kernel == kernel_release or kernel_release in os_kernel):
+    kernel_release = kernel_release_from_package(package)
+    if re.match(r"^linux-(?:image|image-unsigned)-\d", package):
+        if kernel_release_matches(kernel_release, os_kernel):
             return "running_kernel"
+        if os_kernel:
+            return "non_running_kernel_installed"
         return "kernel_package_installed"
-    if re.match(r"^linux-(modules|headers|tools)-\d", package):
+    if re.match(r"^linux-(?:modules|modules-extra|headers|tools)-\d", package):
+        if kernel_release_matches(kernel_release, os_kernel):
+            return "running_kernel_related_package"
+        if os_kernel:
+            return "non_running_kernel_related_package"
         return "kernel_related_package_installed"
     return "package_installed"
 
@@ -126,7 +141,11 @@ def patch_decision(
 
     vendor_affected = verification_status in {"confirmed_affected", "likely_affected"}
     high_threat = kev or epss_score >= 0.7 or (public_poc and cvss_score >= 7.0)
-    important_exposure = exposure == "running_kernel"
+    important_exposure = exposure in {"running_kernel", "running_kernel_related_package"}
+    non_running_kernel = exposure in {"non_running_kernel_installed", "non_running_kernel_related_package"}
+
+    if vendor_affected and non_running_kernel:
+        return "cleanup_old_kernel"
 
     if vendor_affected and (kev or epss_score >= 0.7 or important_exposure and (public_poc or cvss_score >= 8.0)):
         return "patch_now"
@@ -150,6 +169,8 @@ def impact_assessment(verification_status: str, exploit_status: str, exposure: s
         return "vendor_confirmed_high_threat_patch_now"
     if decision == "patch_scheduled":
         return "vendor_confirmed_patch_available"
+    if decision == "cleanup_old_kernel":
+        return "vendor_confirmed_non_running_kernel_cleanup"
     if decision == "no_action":
         return "installed_version_not_vulnerable"
     if decision == "needs_review":
@@ -494,6 +515,8 @@ def recommended_action(
         return f"Patch som theo chu ky khan cap; exploitability cao tren package vendor-confirmed affected.{fixed}"
     if decision == "patch_scheduled":
         return f"Len lich patch theo maintenance window gan nhat.{fixed}"
+    if decision == "cleanup_old_kernel":
+        return "Kernel vulnerable nay khong phai kernel dang chay. Hay giu kernel da fix lam default boot va purge old linux-image/modules packages de Wazuh finding bien mat."
     if decision == "monitor":
         if not fix_available:
             return "Theo doi vendor advisory; chua thay fixed version hoac exploitability thap."

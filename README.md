@@ -44,9 +44,13 @@ wazuh-vuln-enriched-YYYY.MM.DD
 wazuh-vuln-cve-summary-YYYY.MM.DD
 wazuh-vuln-host-summary-YYYY.MM.DD
 wazuh-vuln-host-cve-impact-YYYY.MM.DD
+wazuh-vuln-enriched-latest
+wazuh-vuln-cve-summary-latest
+wazuh-vuln-host-summary-latest
+wazuh-vuln-host-cve-impact-latest
 ```
 
-Dashboards should read these indices, not `wazuh-states-vulnerabilities-*` directly.
+Daily indices keep history. `*-latest` indices keep the current operational state and are what dashboards should read. Dashboards should not read `wazuh-states-vulnerabilities-*` directly.
 
 ## Wazuh-Aligned Incremental Updates
 
@@ -306,11 +310,21 @@ This makes PoC/KEV findings easier to triage because a high-priority row can now
 
 For Ubuntu kernel packages, Wazuh usually reports binary package names such as `linux-image-6.8.0-36-generic`. Canonical tracks kernel vulnerabilities primarily under source package names such as `linux`. The enricher maps common kernel binary package names back to `linux` so these CVEs do not incorrectly show as `vendor_not_found`.
 
+Kernel patching has one important extra rule. If the vulnerable `linux-image-*` package is still installed but the host is already running a different fixed kernel, the finding is not treated as `patch_now`. It is marked as:
+
+```text
+exposure_status: non_running_kernel_installed
+patch_decision: cleanup_old_kernel
+```
+
+That means the host should keep the fixed kernel as default boot and purge old vulnerable kernel packages. Wazuh may continue showing the CVE until the old `linux-image-*` / `linux-modules-*` packages are removed and inventory/vulnerability detection runs again.
+
 Patch decision is the field to use when deciding whether to patch the system:
 
 ```text
 patch_now       -> vendor confirms affected and the threat/exposure is high
 patch_scheduled -> vendor confirms affected and a fixed version exists
+cleanup_old_kernel -> vulnerable old kernel package is installed but is not the running kernel
 monitor         -> affected or possibly affected, but exploitability is low or no fix exists yet
 no_action       -> installed version is already at or above the Ubuntu fixed version
 needs_review    -> Wazuh reported the finding, but vendor metadata did not confirm the package/release
@@ -321,7 +335,7 @@ The decision is intentionally conservative:
 - `KEV=yes` means exploited in the wild and overrides a low EPSS score.
 - `public_poc=yes` raises urgency only after the CVE is known to impact the system.
 - `vendor_not_found` with high threat becomes `needs_review`, not automatic `patch_now`.
-- Kernel findings become more urgent when the package appears to match the running kernel.
+- Kernel findings become urgent when the vulnerable package matches the running kernel. Old non-running kernel packages are treated as cleanup work, not immediate runtime exploit impact.
 
 ## First Run
 
@@ -511,7 +525,7 @@ ALERT_THRESHOLDS:
 ```text
 critical_real_impact -> patch_now + vendor confirmed/likely affected + exploit signal
 needs_review         -> high-threat CVEs where vendor/package confirmation is incomplete
-patch_scheduled      -> vendor confirmed affected, patch should be planned
+patch_scheduled      -> vendor confirmed affected, patch should be planned, or old kernel cleanup is needed
 all                  -> all alert-eligible CVEs
 ```
 
@@ -579,9 +593,9 @@ Top CVEs to decide patching:
 Create these data views:
 
 ```text
-wazuh-vuln-enriched-*       time field: enriched_at
-wazuh-vuln-cve-summary-*    time field: updated_at
-wazuh-vuln-host-cve-impact-* time field: updated_at
+wazuh-vuln-enriched-latest        time field: enriched_at
+wazuh-vuln-cve-summary-latest     time field: updated_at
+wazuh-vuln-host-cve-impact-latest time field: updated_at
 ```
 
 The imported dashboard intentionally contains only the operational panels:
@@ -597,7 +611,7 @@ Dashboard import is optional and separate from enrichment:
 python3 dashboard/manage_saved_objects.py reimport --no-verify-ssl
 ```
 
-The filter and host impact panels use `wazuh-vuln-host-cve-impact-*`. This index has one document per `cve_id + agent_id`, so the host table is not duplicated by package/version. It has dropdowns for:
+The filter and host impact panels use `wazuh-vuln-host-cve-impact-latest`. This index has one current document per `cve_id + agent_id`, so the host table is not duplicated by package/version or by daily history. It has dropdowns for:
 
 ```text
 impact_cve_id
@@ -609,7 +623,14 @@ fix_status
 
 Those fields are written only for CVEs that Wazuh has detected on your agents, so the dropdowns do not list global/non-impact CVEs.
 The imported controls use the `.keyword` subfields for terms aggregation.
-The enriched data view uses `enriched_at` as its time field so host impact tables show the latest enrichment state instead of hiding older findings by `detected_at`.
+The dashboard uses `*-latest` indices for operational views so the same CVE does not appear once per daily index. Daily indices are still written for history/trend queries.
+
+How it works:
+
+- `wazuh-vuln-*-YYYY.MM.DD` keeps historical snapshots.
+- `wazuh-vuln-*-latest` is replaced with the current state after each successful enrichment/update.
+- Dashboard panels and filters should use `*-latest`.
+- Alert logic is unchanged; alerts are evaluated from the current enrichment cycle, not by scanning all daily summary indices.
 
 The dashboard splits CVEs into three operational groups:
 
@@ -635,7 +656,7 @@ Critical Real Impact CVEs:
 
 ```bash
 curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
-  "$WAZUH_INDEXER_URL/wazuh-vuln-cve-summary-*/_search" \
+  "$WAZUH_INDEXER_URL/wazuh-vuln-cve-summary-latest/_search" \
   -H 'Content-Type: application/json' \
   -d '{"size":25,"query":{"bool":{"filter":[{"term":{"patch_decision":"patch_now"}},{"terms":{"verification_status":["confirmed_affected","likely_affected"]}},{"range":{"affected_hosts_count":{"gte":1}}}],"should":[{"term":{"exploitability_status":"exploited_in_wild"}},{"term":{"public_poc":true}},{"range":{"epss_score":{"gte":0.7}}}],"minimum_should_match":1}},"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
 ```
@@ -644,7 +665,7 @@ Needs Review CVEs:
 
 ```bash
 curl -sk -u "$WAZUH_INDEXER_USERNAME:$WAZUH_INDEXER_PASSWORD" \
-  "$WAZUH_INDEXER_URL/wazuh-vuln-cve-summary-*/_search" \
+  "$WAZUH_INDEXER_URL/wazuh-vuln-cve-summary-latest/_search" \
   -H 'Content-Type: application/json' \
   -d '{"size":25,"query":{"bool":{"filter":[{"range":{"affected_hosts_count":{"gte":1}}}],"should":[{"term":{"patch_decision":"needs_review"}},{"bool":{"filter":[{"terms":{"verification_status":["vendor_not_found","needs_manual_check","not_verified"]}}],"should":[{"term":{"kev":true}},{"term":{"public_poc":true}},{"range":{"epss_score":{"gte":0.7}}}],"minimum_should_match":1}}],"minimum_should_match":1}},"sort":[{"risk_score":"desc"},{"affected_hosts_count":"desc"}]}'
 ```
