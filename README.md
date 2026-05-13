@@ -33,6 +33,7 @@ Daemon mode automatically:
 - Waits 180 seconds before processing changed agents so Wazuh has time to update vulnerability states.
 - Re-enriches only changed agents and incrementally updates the affected host/CVE summaries.
 - Runs incremental enrichment every 15 minutes.
+- On the first daemon start, runs one full refresh and marks `startup_full_refresh_done` in `STATE_FILE`.
 - Runs full refresh every 24 hours or when feed fingerprints change.
 - Runs one automatic full refresh when the current daily enriched index is empty.
 - Detects new agents every 5 minutes.
@@ -71,8 +72,11 @@ Feed changes still trigger a full refresh because KEV, EPSS, PoC, or Ubuntu meta
 ```text
 Inventory update -> incremental agent refresh
 Feed update      -> full refresh
+First startup    -> one full refresh, then mark startup_full_refresh_done
 Daily fallback   -> full refresh
 ```
+
+The startup full refresh creates the initial operational snapshot for dashboards. It runs once, then stores `startup_full_refresh_done: true` in `STATE_FILE`. A config reload does not run it again, and a service restart also skips it because the state file is already marked. To force this startup full refresh again, set `startup_full_refresh_done` to `false` in the state file or run `enrich-all` manually.
 
 The daily fallback exists because the enriched indices are date-based. After midnight, `wazuh-vuln-enriched-YYYY.MM.DD` is a new index. If the daemon sees that today's enriched index has no documents and it has not already refreshed that index, it runs one full refresh and records the index name in `STATE_FILE` as `last_daily_full_refresh_index`.
 

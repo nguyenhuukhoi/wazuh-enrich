@@ -544,6 +544,15 @@ def daily_full_refresh_required(settings: Settings, client: WazuhIndexerClient, 
     return True, enriched_index, count
 
 
+def startup_full_refresh_required(state: StateStore) -> bool:
+    return not bool(state.data.get("startup_full_refresh_done"))
+
+
+def mark_startup_full_refresh(state: StateStore) -> None:
+    state.data["startup_full_refresh_done"] = True
+    state.data["startup_full_refresh_at"] = datetime.now(timezone.utc).isoformat()
+
+
 def daemon(config_path: str, settings: Settings, dry_run: bool = False, dry_run_send_alerts: bool = False) -> None:
     global RELOAD_REQUESTED
     state = StateStore(settings.state_file)
@@ -552,6 +561,7 @@ def daemon(config_path: str, settings: Settings, dry_run: bool = False, dry_run_
     schedule = build_daemon_schedule(settings)
     last_run = {key: 0.0 for key in schedule}
     last_run["full_refresh_seconds"] = time.monotonic()
+    startup_full_refresh_checked = False
     install_reload_handler()
     LOG.info("daemon_started schedule=%s dry_run=%s", schedule, dry_run)
     while True:
@@ -573,6 +583,15 @@ def daemon(config_path: str, settings: Settings, dry_run: bool = False, dry_run_
                 except Exception:
                     LOG.exception("daemon_reload_failed keeping_previous_config=true")
                     continue
+            if not startup_full_refresh_checked:
+                if startup_full_refresh_required(state):
+                    LOG.info("startup_full_refresh_started first_start=true")
+                    enrich(settings, client, state, full=True, dry_run=dry_run, dry_run_send_alerts=dry_run_send_alerts)
+                    mark_startup_full_refresh(state)
+                    mark_daily_full_refresh(settings, client, state)
+                    last_run["full_refresh_seconds"] = now
+                    last_run["enrichment_seconds"] = now
+                startup_full_refresh_checked = True
             feeds_changed = False
             if now - last_run["kev_sync_seconds"] >= schedule["kev_sync_seconds"]:
                 before = feed_sync.fingerprints()

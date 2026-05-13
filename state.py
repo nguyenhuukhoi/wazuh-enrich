@@ -18,6 +18,8 @@ DEFAULT_STATE: dict[str, Any] = {
     "last_alert_sent_by_type": {},
     "feed_fingerprints": {},
     "last_daily_full_refresh_index": None,
+    "startup_full_refresh_done": False,
+    "startup_full_refresh_at": None,
 }
 
 

@@ -32,6 +32,7 @@ Daemon tự làm:
 - Watch Wazuh inventory index mỗi 60 giây và queue agent nào vừa đổi inventory.
 - Chờ 180 giây trước khi xử lý agent đã đổi để Wazuh kịp cập nhật vulnerability state.
 - Chỉ enrich lại agent đã đổi và update incremental các summary bị ảnh hưởng.
+- Khi daemon start lần đầu, chạy full refresh một lần rồi mark `startup_full_refresh_done` trong `STATE_FILE`.
 - Full refresh mỗi 24 giờ hoặc khi feed fingerprint đổi.
 - Tự full refresh một lần khi daily enriched index của ngày hiện tại chưa có document.
 - Detect agent mới mỗi 5 phút.
@@ -70,8 +71,11 @@ Khi feed đổi thì vẫn cần full refresh, vì KEV, EPSS, PoC hoặc Ubuntu 
 ```text
 Inventory update -> refresh incremental theo agent
 Feed update      -> full refresh
+First startup    -> full refresh một lần, rồi mark startup_full_refresh_done
 Daily fallback   -> full refresh
 ```
+
+Startup full refresh dùng để tạo snapshot ban đầu cho dashboard. Nó chỉ chạy một lần, sau đó ghi `startup_full_refresh_done: true` vào `STATE_FILE`. Reload config không chạy lại, restart service cũng không chạy lại vì state đã được mark. Nếu muốn ép chạy startup full refresh lại, set `startup_full_refresh_done` về `false` trong state file hoặc chạy `enrich-all` thủ công.
 
 Daily fallback cần vì enriched index được tách theo ngày. Sau 00:00, `wazuh-vuln-enriched-YYYY.MM.DD` là index mới. Nếu daemon thấy index hôm nay chưa có document và chưa từng refresh index đó, nó sẽ chạy full refresh một lần rồi lưu tên index vào `STATE_FILE` bằng key `last_daily_full_refresh_index`.
 

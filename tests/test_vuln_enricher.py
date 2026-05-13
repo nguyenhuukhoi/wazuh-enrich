@@ -1,7 +1,14 @@
 from types import SimpleNamespace
 
 from state import StateStore
-from vuln_enricher import daily_full_refresh_required, latest_index, latest_indices, mark_daily_full_refresh
+from vuln_enricher import (
+    daily_full_refresh_required,
+    latest_index,
+    latest_indices,
+    mark_daily_full_refresh,
+    mark_startup_full_refresh,
+    startup_full_refresh_required,
+)
 
 
 class FakeClient:
@@ -74,3 +81,15 @@ def test_latest_indices_use_stable_dashboard_index_names():
         "host_summary_index": "wazuh-vuln-host-summary-latest",
         "host_cve_impact_index": "wazuh-vuln-host-cve-impact-latest",
     }
+
+
+def test_startup_full_refresh_required_until_marked(tmp_path):
+    state = StateStore(tmp_path / "state.json")
+
+    assert startup_full_refresh_required(state) is True
+
+    mark_startup_full_refresh(state)
+
+    assert startup_full_refresh_required(state) is False
+    assert state.data["startup_full_refresh_done"] is True
+    assert state.data["startup_full_refresh_at"]
