@@ -1,7 +1,13 @@
 from types import SimpleNamespace
 
 from state import StateStore
-from vuln_enricher import daily_full_refresh_required, latest_index, latest_indices, mark_daily_full_refresh
+from vuln_enricher import (
+    daily_full_refresh_required,
+    ensure_latest_indices,
+    latest_index,
+    latest_indices,
+    mark_daily_full_refresh,
+)
 
 
 class FakeClient:
@@ -9,6 +15,7 @@ class FakeClient:
         self._index_name = index_name
         self._count = count
         self.count_calls = 0
+        self.created_indices = []
 
     def index_name(self, prefix: str) -> str:
         return self._index_name
@@ -17,6 +24,10 @@ class FakeClient:
         self.count_calls += 1
         assert index == self._index_name
         return self._count
+
+    def ensure_index(self, index: str) -> bool:
+        self.created_indices.append(index)
+        return True
 
 
 def test_daily_full_refresh_required_when_today_index_is_empty(tmp_path):
@@ -74,3 +85,19 @@ def test_latest_indices_use_stable_dashboard_index_names():
         "host_summary_index": "wazuh-vuln-host-summary-latest",
         "host_cve_impact_index": "wazuh-vuln-host-cve-impact-latest",
     }
+
+
+def test_ensure_latest_indices_creates_dashboard_indices_even_without_docs():
+    settings = SimpleNamespace(
+        enriched_index_prefix="wazuh-vuln-enriched",
+        cve_summary_index_prefix="wazuh-vuln-cve-summary",
+        host_summary_index_prefix="wazuh-vuln-host-summary",
+        host_cve_impact_index_prefix="wazuh-vuln-host-cve-impact",
+    )
+    client = FakeClient("wazuh-vuln-enriched-2026.05.11")
+
+    indices = ensure_latest_indices(client, settings)
+
+    assert list(indices.values()) == client.created_indices
+    assert "wazuh-vuln-cve-summary-latest" in client.created_indices
+    assert "wazuh-vuln-host-cve-impact-latest" in client.created_indices

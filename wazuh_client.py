@@ -111,6 +111,18 @@ class WazuhIndexerClient:
                     "exploitability_status": {"type": "keyword"},
                     "exposure_status": {"type": "keyword"},
                     "impact_assessment": {"type": "keyword"},
+                    "verification_status": {"type": "keyword"},
+                    "verification_source": {"type": "keyword"},
+                    "verification_confidence": {"type": "keyword"},
+                    "vendor_source": {"type": "keyword"},
+                    "vendor_advisory_url": {"type": "keyword"},
+                    "vendor_fixed_version": {"type": "keyword"},
+                    "vendor_severity": {"type": "keyword"},
+                    "vendor_status": {"type": "keyword"},
+                    "fix_available": {"type": "boolean"},
+                    "fix_status": {"type": "keyword"},
+                    "ubuntu_release": {"type": "keyword"},
+                    "recommended_action": IMPACT_FIELD_MAPPING,
                     "risk_score": {"type": "float"},
                     "reason": {"type": "keyword"},
                     "detected_at": {"type": "date", "ignore_malformed": True},
@@ -139,9 +151,20 @@ class WazuhIndexerClient:
                     "cvss_score": {"type": "float"},
                     "affected_hosts_count": {"type": "integer"},
                     "affected_packages": {"type": "keyword"},
+                    "verification_status": {"type": "keyword"},
+                    "vendor_source": {"type": "keyword"},
+                    "vendor_advisory_url": {"type": "keyword"},
+                    "vendor_fixed_version": {"type": "keyword"},
+                    "vendor_severity": {"type": "keyword"},
+                    "vendor_status": {"type": "keyword"},
+                    "fix_available": {"type": "boolean"},
+                    "fix_status": {"type": "keyword"},
+                    "recommended_action": IMPACT_FIELD_MAPPING,
                     "risk_score": {"type": "float"},
+                    "reason": {"type": "keyword"},
                     "first_detected_at": {"type": "date", "ignore_malformed": True},
                     "last_detected_at": {"type": "date", "ignore_malformed": True},
+                    "updated_at": {"type": "date", "ignore_malformed": True},
                 },
             ),
             "wazuh-vuln-host-summary-template": (
@@ -164,6 +187,7 @@ class WazuhIndexerClient:
                     "highest_cvss": {"type": "float"},
                     "top_packages": {"type": "keyword"},
                     "last_scan_time": {"type": "date", "ignore_malformed": True},
+                    "updated_at": {"type": "date", "ignore_malformed": True},
                 },
             ),
             "wazuh-vuln-host-cve-impact-template": (
@@ -194,6 +218,16 @@ class WazuhIndexerClient:
                     "risk_score": {"type": "float"},
                     "affected_packages": {"type": "keyword"},
                     "affected_package_versions": {"type": "keyword"},
+                    "verification_status": {"type": "keyword"},
+                    "vendor_source": {"type": "keyword"},
+                    "vendor_advisory_url": {"type": "keyword"},
+                    "vendor_fixed_version": {"type": "keyword"},
+                    "vendor_severity": {"type": "keyword"},
+                    "vendor_status": {"type": "keyword"},
+                    "fix_available": {"type": "boolean"},
+                    "fix_status": {"type": "keyword"},
+                    "recommended_action": IMPACT_FIELD_MAPPING,
+                    "reason": {"type": "keyword"},
                     "finding_count": {"type": "integer"},
                     "first_detected_at": {"type": "date", "ignore_malformed": True},
                     "last_detected_at": {"type": "date", "ignore_malformed": True},
@@ -214,6 +248,17 @@ class WazuhIndexerClient:
                 LOG.info("index_template_ready name=%s pattern=%s", name, pattern)
             except Exception as exc:
                 LOG.warning("index_template_failed name=%s error=%s", name, exc)
+
+    def ensure_index(self, index: str) -> bool:
+        try:
+            if self.client.indices.exists(index=index):
+                return False
+            self.client.indices.create(index=index)
+            LOG.info("index_ready index=%s created=true", index)
+            return True
+        except Exception as exc:
+            LOG.warning("index_create_failed index=%s error=%s", index, exc)
+            return False
 
     def iter_vulnerability_findings(
         self,
