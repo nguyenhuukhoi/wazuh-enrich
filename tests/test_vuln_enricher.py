@@ -7,6 +7,7 @@ from vuln_enricher import (
     latest_indices,
     mark_daily_full_refresh,
     mark_startup_full_refresh,
+    reconcile_resolved_latest_findings,
     startup_full_refresh_required,
 )
 
@@ -24,6 +25,37 @@ class FakeClient:
         self.count_calls += 1
         assert index == self._index_name
         return self._count
+
+
+class FakeReconcileClient:
+    def __init__(self):
+        self.latest_docs = [
+            {
+                "cve_id": "CVE-2026-0001",
+                "agent_id": "001",
+                "package_name": "openssl",
+                "package_version": "1.0",
+            },
+            {
+                "cve_id": "CVE-2026-0002",
+                "agent_id": "001",
+                "package_name": "nginx",
+                "package_version": "2.0",
+            },
+        ]
+        self.deleted: list[dict] = []
+
+    def iter_vulnerability_finding_keys(self):
+        yield "CVE-2026-0001|001|openssl|1.0"
+
+    def iter_index_sources(self, index: str, query=None):
+        assert index == "wazuh-vuln-enriched-latest"
+        yield from self.latest_docs
+
+    def delete_enriched_findings_by_identity(self, index: str, docs: list[dict]) -> int:
+        assert index == "wazuh-vuln-enriched-latest"
+        self.deleted.extend(docs)
+        return len(docs)
 
 
 def test_daily_full_refresh_required_when_today_index_is_empty(tmp_path):
@@ -93,3 +125,20 @@ def test_startup_full_refresh_required_until_marked(tmp_path):
     assert startup_full_refresh_required(state) is False
     assert state.data["startup_full_refresh_done"] is True
     assert state.data["startup_full_refresh_at"]
+
+
+def test_reconcile_resolved_latest_findings_deletes_docs_missing_from_wazuh():
+    settings = SimpleNamespace(
+        enriched_index_prefix="wazuh-vuln-enriched",
+        cve_summary_index_prefix="wazuh-vuln-cve-summary",
+        host_summary_index_prefix="wazuh-vuln-host-summary",
+        host_cve_impact_index_prefix="wazuh-vuln-host-cve-impact",
+    )
+    client = FakeReconcileClient()
+
+    result = reconcile_resolved_latest_findings(client, settings)
+
+    assert result["checked_latest_docs"] == 2
+    assert result["stale_docs"] == 1
+    assert result["deleted_latest_docs"] == 1
+    assert client.deleted[0]["cve_id"] == "CVE-2026-0002"

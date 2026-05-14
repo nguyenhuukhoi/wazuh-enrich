@@ -70,6 +70,17 @@ def cve_year(cve_id: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def finding_key(cve_id: str, agent_id: str, package_name: str, package_version: str) -> str:
+    return "|".join(
+        [
+            str(cve_id or "").upper(),
+            str(agent_id or ""),
+            str(package_name or ""),
+            str(package_version or ""),
+        ]
+    )
+
+
 def classify_priority(kev: bool, epss_score: float, cvss_score: float) -> tuple[str, str]:
     if kev:
         return "P0", "CVE nam trong CISA KEV"
@@ -447,6 +458,7 @@ def normalize_finding(
 
     doc = {
         "cve_id": cve_id,
+        "finding_key": finding_key(cve_id, agent_id, package_name, package_version),
         "cve_year": cve_year(cve_id),
         "agent_id": agent_id,
         "agent_name": first_path(source, ["agent.name"], "") or metadata.get("agent_name", ""),

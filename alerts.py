@@ -6,6 +6,7 @@ import requests
 
 from risk import epss_bucket
 from state import StateStore
+from summary import build_cve_summary
 
 LOG = logging.getLogger(__name__)
 
@@ -86,31 +87,33 @@ class AlertManager:
                     self.state.mark_alert_sent(key)
 
     def process_new_agent_baseline(self, agent_id: str, agent_name: str, enriched_docs: list[dict[str, Any]]) -> None:
-        priority_docs = [
-            doc
-            for doc in enriched_docs
-            if doc.get("priority") in {"P0", "P1"} and (not self.public_poc_only or doc.get("public_poc"))
+        epss_high = float(self.thresholds.get("epss_high", 0.7))
+        cve_summaries = [
+            cve
+            for cve in build_cve_summary(enriched_docs)
+            if self._scope_matches(cve, epss_high) and (not self.public_poc_only or cve.get("public_poc"))
         ]
-        if not priority_docs:
+        if not cve_summaries:
             return
-        key = f"new-agent|{agent_id}|baseline-p0-p1"
+        key = f"new-agent|{agent_id}|baseline|{self.alert_scope}"
         if not self.send_all_alerts and self.state.was_alert_sent(key):
             return
         if not self.send_all_alerts:
             self.state.mark_alert_sent(key)
-        top = sorted(priority_docs, key=lambda doc: float(doc.get("risk_score", 0.0)), reverse=True)[:10]
-        lines = [
-            "CRITICAL - New agent baseline has high-risk CVEs",
-            "",
-            "Summary:",
-            f"- Agent: {agent_id} {agent_name}".rstrip(),
-            f"- P0/P1 findings: {len(priority_docs)}",
-            f"- Unique CVEs: {len({doc.get('cve_id') for doc in priority_docs})}",
-            "",
-            "Top CVEs:",
-        ]
-        lines.extend(self._format_cve_line(index + 1, doc) for index, doc in enumerate(top))
-        self.send_message("\n".join(lines))
+        cve_summaries = sorted(
+            cve_summaries,
+            key=lambda doc: (
+                PATCH_DECISION_ORDER.get(str(doc.get("patch_decision", "monitor")), 99),
+                -float(doc.get("risk_score", 0.0)),
+            ),
+        )
+        self.send_message(
+            self._format_critical_alert(
+                cve_summaries,
+                enriched_docs,
+                extra_summary_lines=[f"- New agent baseline: {agent_id} {agent_name}".rstrip()],
+            )
+        )
 
     def _cycle_alert_throttled(self) -> bool:
         if self.alert_interval_seconds <= 0:
@@ -181,7 +184,12 @@ class AlertManager:
             ),
         )
 
-    def _format_critical_alert(self, cves: list[dict[str, Any]], enriched_docs: list[dict[str, Any]]) -> str:
+    def _format_critical_alert(
+        self,
+        cves: list[dict[str, Any]],
+        enriched_docs: list[dict[str, Any]],
+        extra_summary_lines: list[str] | None = None,
+    ) -> str:
         epss_high = float(self.thresholds.get("epss_high", 0.7))
         max_top = int(self.thresholds.get("max_top_cves", 10))
         top_cves = cves if max_top <= 0 else cves[:max_top]
@@ -199,6 +207,7 @@ class AlertManager:
             "",
             "Summary:",
             f"- Alert scope: {self.alert_scope}",
+            *(extra_summary_lines or []),
             f"- {affected_label}: {affected_value}",
             f"- Patch now CVEs: {len([cve for cve in cves if cve.get('patch_decision') == 'patch_now'])}",
             f"- Needs review CVEs: {len([cve for cve in cves if cve.get('patch_decision') == 'needs_review'])}",

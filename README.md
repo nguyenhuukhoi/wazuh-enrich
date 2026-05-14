@@ -71,10 +71,13 @@ Feed changes still trigger a full refresh because KEV, EPSS, PoC, or Ubuntu meta
 
 ```text
 Inventory update -> incremental agent refresh
+Enrichment cycle -> reconcile resolved findings from Wazuh current state
 Feed update      -> full refresh
 First startup    -> one full refresh, then mark startup_full_refresh_done
 Daily fallback   -> full refresh
 ```
+
+Each incremental enrichment cycle also compares `wazuh-vuln-enriched-latest` with the current Wazuh vulnerability state. If Wazuh no longer has a finding, the stale enriched document is removed from `*-latest` before CVE/host summaries are rebuilt. This keeps the dashboard current after patching without waiting for the next scheduled full refresh.
 
 The startup full refresh creates the initial operational snapshot for dashboards. It runs once, then stores `startup_full_refresh_done: true` in `STATE_FILE`. A config reload does not run it again, and a service restart also skips it because the state file is already marked. To force this startup full refresh again, set `startup_full_refresh_done` to `false` in the state file or run `enrich-all` manually.
 
@@ -565,7 +568,7 @@ ALERT_THRESHOLDS:
   max_top_cves: 0
 ```
 
-`alert_interval_seconds` is the minimum gap between two aggregate cycle alerts. It only applies to the normal cycle alert from `process_cycle`; new-agent baseline alerts are still sent immediately when detected. The first eligible alert after service start is sent immediately if `STATE_FILE` has no previous `last_alert_sent_by_type.cycle`. If the service is restarted and the previous cycle alert is still inside the interval window, the restart will not spam Telegram.
+`alert_interval_seconds` is the minimum gap between two aggregate cycle alerts. It only applies to the normal cycle alert from `process_cycle`; new-agent baseline alerts are still checked immediately when detected, but they use the same `alert_scope` logic and alert format as the cycle alert. The first eligible alert after service start is sent immediately if `STATE_FILE` has no previous `last_alert_sent_by_type.cycle`. If the service is restarted and the previous cycle alert is still inside the interval window, the restart will not spam Telegram.
 
 This option does not create a separate alert scheduler. Alerts are evaluated when enrichment/inventory processing runs. If `alert_interval_seconds` is smaller than `SCHEDULE.enrichment_seconds`, the real resend pace is still limited by the enrichment cycle.
 

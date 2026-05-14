@@ -70,10 +70,13 @@ Khi feed đổi thì vẫn cần full refresh, vì KEV, EPSS, PoC hoặc Ubuntu 
 
 ```text
 Inventory update -> refresh incremental theo agent
+Enrichment cycle -> đối chiếu với Wazuh current state để xóa finding đã hết
 Feed update      -> full refresh
 First startup    -> full refresh một lần, rồi mark startup_full_refresh_done
 Daily fallback   -> full refresh
 ```
+
+Mỗi incremental enrichment cycle sẽ so sánh `wazuh-vuln-enriched-latest` với current vulnerability state của Wazuh. Nếu Wazuh không còn finding đó nữa, document stale trong `*-latest` sẽ bị xóa trước khi rebuild CVE/host summary. Nhờ vậy dashboard cập nhật đúng sau khi patch mà không phải chờ scheduled full refresh tiếp theo.
 
 Startup full refresh dùng để tạo snapshot ban đầu cho dashboard. Nó chỉ chạy một lần, sau đó ghi `startup_full_refresh_done: true` vào `STATE_FILE`. Reload config không chạy lại, restart service cũng không chạy lại vì state đã được mark. Nếu muốn ép chạy startup full refresh lại, set `startup_full_refresh_done` về `false` trong state file hoặc chạy `enrich-all` thủ công.
 
@@ -533,7 +536,7 @@ ALERT_THRESHOLDS:
   max_top_cves: 0
 ```
 
-`alert_interval_seconds` là khoảng cách tối thiểu giữa 2 lần aggregate cycle alert. Nó chỉ áp dụng cho alert cycle bình thường từ `process_cycle`; alert baseline của agent mới vẫn gửi ngay khi detect. Lần alert đầu tiên sau khi start service sẽ gửi ngay nếu `STATE_FILE` chưa có `last_alert_sent_by_type.cycle`. Nếu service restart và lần gửi cycle alert trước vẫn còn trong khoảng interval, service sẽ không spam Telegram sau restart.
+`alert_interval_seconds` là khoảng cách tối thiểu giữa 2 lần aggregate cycle alert. Nó chỉ áp dụng cho alert cycle bình thường từ `process_cycle`; alert baseline của agent mới vẫn được check ngay khi detect, nhưng dùng cùng logic `alert_scope` và cùng format alert với cycle alert. Lần alert đầu tiên sau khi start service sẽ gửi ngay nếu `STATE_FILE` chưa có `last_alert_sent_by_type.cycle`. Nếu service restart và lần gửi cycle alert trước vẫn còn trong khoảng interval, service sẽ không spam Telegram sau restart.
 
 Option này không tạo scheduler alert riêng. Alert chỉ được evaluate khi enrichment/inventory processing chạy. Nếu `alert_interval_seconds` nhỏ hơn `SCHEDULE.enrichment_seconds`, nhịp gửi thực tế vẫn bị giới hạn bởi enrichment cycle.
 

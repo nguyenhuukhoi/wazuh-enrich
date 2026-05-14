@@ -455,17 +455,60 @@ def test_new_agent_baseline_is_not_blocked_by_cycle_alert_interval(tmp_path):
             {
                 "cve_id": "CVE-2026-0001",
                 "priority": "P0",
+                "agent_id": "002",
                 "kev": True,
+                "public_poc": False,
                 "epss_score": 0.1,
                 "cvss_score": 7.8,
                 "package_name": "kernel",
+                "affected_packages": ["kernel"],
+                "patch_decision": "patch_now",
+                "verification_status": "confirmed_affected",
+                "exploitability_status": "exploited_in_wild",
+                "fix_available": True,
+                "recommended_action": "Patch now.",
                 "risk_score": 80.0,
             }
         ],
     )
 
     assert len(manager.messages) == 1
-    assert "New agent baseline" in manager.messages[0]
+    assert "CRITICAL - Critical Real Impact CVEs impacting system" in manager.messages[0]
+    assert "- New agent baseline: 002 ubuntu-new" in manager.messages[0]
+    assert "patch=patch_now" in manager.messages[0]
+
+
+def test_new_agent_baseline_uses_alert_scope_not_raw_p0_p1(tmp_path):
+    state = StateStore(tmp_path / "state.json")
+    manager = CapturingAlertManager(
+        bot_token="",
+        chat_id="",
+        thresholds={},
+        state=state,
+    )
+
+    manager.process_new_agent_baseline(
+        "002",
+        "ubuntu-new",
+        [
+            {
+                "cve_id": "CVE-2026-REVIEW",
+                "priority": "P0",
+                "agent_id": "002",
+                "kev": True,
+                "public_poc": False,
+                "epss_score": 0.1,
+                "cvss_score": 7.8,
+                "package_name": "kernel",
+                "patch_decision": "needs_review",
+                "verification_status": "vendor_not_found",
+                "exploitability_status": "exploited_in_wild",
+                "risk_score": 80.0,
+            }
+        ],
+    )
+
+    assert manager.messages == []
 
 
 def test_dry_run_alert_renders_readable_block(tmp_path, capsys):

@@ -6,7 +6,7 @@ from typing import Any, Iterable
 from opensearchpy import OpenSearch, RequestsHttpConnection, helpers
 
 from config import Settings
-from risk import first_path, first_valid_ip
+from risk import finding_key, first_path, first_valid_ip
 
 LOG = logging.getLogger(__name__)
 
@@ -83,6 +83,7 @@ class WazuhIndexerClient:
                 f"{self.settings.enriched_index_prefix}-*",
                 {
                     "cve_id": {"type": "keyword"},
+                    "finding_key": {"type": "keyword"},
                     "cve_year": {"type": "integer"},
                     "agent_id": {"type": "keyword"},
                     "agent_name": {"type": "keyword"},
@@ -228,6 +229,25 @@ class WazuhIndexerClient:
         query: dict[str, Any] = {"bool": {"filter": filters}} if filters else {"match_all": {}}
         body = {"query": query, "_source": SOURCE_FIELDS}
         yield from self._scroll_sources(self.settings.wazuh_vuln_index_pattern, body)
+
+    def iter_vulnerability_finding_keys(self) -> Iterable[str]:
+        body = {
+            "query": {"match_all": {}},
+            "_source": [
+                "agent.id",
+                "vulnerability.id",
+                "vulnerability.cve",
+                "package.name",
+                "package.version",
+            ],
+        }
+        for source in self._scroll_sources(self.settings.wazuh_vuln_index_pattern, body):
+            cve_id = str(first_path(source, ["vulnerability.id", "vulnerability.cve"], "")).upper()
+            agent_id = str(first_path(source, ["agent.id"], ""))
+            package_name = str(first_path(source, ["package.name"], ""))
+            package_version = str(first_path(source, ["package.version"], ""))
+            if cve_id.startswith("CVE-") and agent_id:
+                yield finding_key(cve_id, agent_id, package_name, package_version)
 
     def iter_index_sources(self, index: str, query: dict[str, Any] | None = None) -> Iterable[dict[str, Any]]:
         body = {"query": query or {"match_all": {}}}
@@ -453,6 +473,28 @@ class WazuhIndexerClient:
         deleted = int(response.get("deleted", 0))
         LOG.info("delete_by_query_done index=%s deleted=%s", index, deleted)
         return deleted
+
+    def delete_enriched_findings_by_identity(self, index: str, docs: list[dict[str, Any]]) -> int:
+        deleted = 0
+        for start in range(0, len(docs), 200):
+            chunk = docs[start : start + 200]
+            should = [self._identity_clause(doc) for doc in chunk]
+            deleted += self.delete_by_query(
+                index,
+                {"bool": {"should": should, "minimum_should_match": 1}},
+            )
+        return deleted
+
+    @staticmethod
+    def _identity_clause(doc: dict[str, Any]) -> dict[str, Any]:
+        filters: list[dict[str, Any]] = []
+        for field in ["cve_id", "agent_id", "package_name", "package_version"]:
+            value = str(doc.get(field, ""))
+            if value:
+                filters.append({"term": {field: value}})
+            else:
+                filters.append({"bool": {"must_not": {"exists": {"field": field}}}})
+        return {"bool": {"filter": filters}}
 
     def _scroll_sources(
         self,

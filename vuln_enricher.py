@@ -12,7 +12,7 @@ from typing import Any
 from alerts import AlertManager
 from config import Settings, load_config
 from feed_sync import FeedSync
-from risk import normalize_finding
+from risk import finding_key, normalize_finding
 from state import StateStore
 from summary import build_cve_summary, build_host_cve_impact_summary, build_host_summary, overview_metrics
 from tools.build_poc_feed import build_poc_feed
@@ -88,6 +88,54 @@ def replace_latest_indices(
     client.delete_by_query(indices["host_cve_impact_index"], {"match_all": {}})
     client.bulk_index(indices["host_cve_impact_index"], host_cve_impacts, ["cve_id", "agent_id"])
     return indices
+
+
+def enriched_finding_key(doc: dict[str, Any]) -> str:
+    existing = str(doc.get("finding_key") or "")
+    if existing:
+        return existing
+    return finding_key(
+        str(doc.get("cve_id", "")),
+        str(doc.get("agent_id", "")),
+        str(doc.get("package_name", "")),
+        str(doc.get("package_version", "")),
+    )
+
+
+def reconcile_resolved_latest_findings(
+    client: WazuhIndexerClient,
+    settings: Settings,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    latest = latest_indices(settings)
+    try:
+        active_keys = set(client.iter_vulnerability_finding_keys())
+    except Exception as exc:
+        LOG.warning("resolved_reconcile_skipped reason=active_key_query_failed error=%s", exc)
+        return {"skipped": True, "reason": "active_key_query_failed", "stale_docs": 0}
+
+    stale_docs: list[dict[str, Any]] = []
+    checked = 0
+    for doc in client.iter_index_sources(latest["enriched_index"]):
+        checked += 1
+        if enriched_finding_key(doc) not in active_keys:
+            stale_docs.append(doc)
+
+    deleted = 0
+    if stale_docs and not dry_run:
+        deleted = client.delete_enriched_findings_by_identity(latest["enriched_index"], stale_docs)
+
+    result = {
+        "skipped": False,
+        "active_wazuh_findings": len(active_keys),
+        "checked_latest_docs": checked,
+        "stale_docs": len(stale_docs),
+        "deleted_latest_docs": deleted,
+        "dry_run": dry_run,
+    }
+    if stale_docs:
+        LOG.info("resolved_findings_reconciled %s", json.dumps(result, sort_keys=True))
+    return result
 
 
 def request_reload(_signum: int, _frame: Any) -> None:
@@ -229,6 +277,10 @@ def enrich(
                 ["cve_id", "agent_id", "package_name", "package_version"],
             )
 
+    resolved_cleanup: dict[str, Any] = {}
+    if not full and not dry_run:
+        resolved_cleanup = reconcile_resolved_latest_findings(client, settings, dry_run=dry_run)
+
     summary_source = enriched_docs
     if not full and not dry_run:
         summary_source = list(client.iter_index_sources(latest["enriched_index"]))
@@ -268,6 +320,7 @@ def enrich(
         "host_summary_index": host_summary_index,
         "host_cve_impact_index": host_cve_impact_index,
         "latest_indices": latest,
+        "resolved_cleanup": resolved_cleanup,
         "dry_run": dry_run,
     }
     LOG.info("enrichment_done %s", json.dumps(result, sort_keys=True))
