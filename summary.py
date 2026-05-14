@@ -14,11 +14,12 @@ VERIFICATION_ORDER = {
 }
 PATCH_DECISION_ORDER = {
     "patch_now": 0,
-    "patch_scheduled": 1,
-    "cleanup_old_kernel": 2,
-    "needs_review": 3,
-    "monitor": 4,
-    "no_action": 5,
+    "workaround_active": 1,
+    "patch_scheduled": 2,
+    "cleanup_old_kernel": 3,
+    "needs_review": 4,
+    "monitor": 5,
+    "no_action": 6,
 }
 
 
@@ -54,6 +55,38 @@ def _highest_patch_doc(docs: list[dict[str, Any]]) -> dict[str, Any]:
             -float(doc.get("risk_score", 0.0)),
         ),
     )[0]
+
+
+def _mitigation_status(docs: list[dict[str, Any]]) -> str:
+    statuses = {str(doc.get("mitigation_status", "unknown")) for doc in docs}
+    if "not_mitigated" in statuses and "mitigated" in statuses:
+        return "partially_mitigated"
+    if "not_mitigated" in statuses:
+        return "not_mitigated"
+    if statuses == {"mitigated"}:
+        return "mitigated"
+    if "mitigated" in statuses:
+        return "partially_mitigated"
+    return "unknown"
+
+
+def _workaround_fields(docs: list[dict[str, Any]]) -> dict[str, Any]:
+    status = _mitigation_status(docs)
+    return {
+        "mitigation_status": status,
+        "workaround_verified": status == "mitigated",
+        "workaround_check_passed": sum(int(doc.get("workaround_check_passed", 0)) for doc in docs),
+        "workaround_check_failed": sum(int(doc.get("workaround_check_failed", 0)) for doc in docs),
+        "workaround_policy_ids": sorted(
+            {item for doc in docs for item in (doc.get("workaround_policy_ids") or []) if item}
+        )[:20],
+        "workaround_check_ids": sorted(
+            {item for doc in docs for item in (doc.get("workaround_check_ids") or []) if item}
+        )[:20],
+        "workaround_check_titles": sorted(
+            {item for doc in docs for item in (doc.get("workaround_check_titles") or []) if item}
+        )[:20],
+    }
 
 
 def build_cve_summary(enriched_docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -114,6 +147,7 @@ def build_cve_summary(enriched_docs: list[dict[str, Any]]) -> list[dict[str, Any
             "vendor_status": highest.get("vendor_status", ""),
             "recommended_action": patch_doc.get("recommended_action", ""),
             "updated_at": now,
+            **_workaround_fields(docs),
         }
         if public_poc:
             summary["impact_cve_id"] = cve_id
@@ -149,6 +183,9 @@ def build_host_summary(enriched_docs: list[dict[str, Any]]) -> list[dict[str, An
                 "os_version": first.get("os_version", ""),
                 "total_cves": len(cves),
                 "patch_now_count": len({doc["cve_id"] for doc in docs if doc.get("patch_decision") == "patch_now"}),
+                "workaround_active_count": len(
+                    {doc["cve_id"] for doc in docs if doc.get("patch_decision") == "workaround_active"}
+                ),
                 "patch_scheduled_count": len({doc["cve_id"] for doc in docs if doc.get("patch_decision") == "patch_scheduled"}),
                 "cleanup_old_kernel_count": len({doc["cve_id"] for doc in docs if doc.get("patch_decision") == "cleanup_old_kernel"}),
                 "needs_review_count": len({doc["cve_id"] for doc in docs if doc.get("patch_decision") == "needs_review"}),
@@ -159,6 +196,12 @@ def build_host_summary(enriched_docs: list[dict[str, Any]]) -> list[dict[str, An
                 "highest_cvss": max(float(doc.get("cvss_score", 0.0)) for doc in docs),
                 "top_packages": _top(packages),
                 "last_scan_time": _max_dt([doc.get("last_detected_at") or doc.get("detected_at") for doc in docs]),
+                "mitigated_cves_count": len(
+                    {doc["cve_id"] for doc in docs if doc.get("mitigation_status") == "mitigated"}
+                ),
+                "not_mitigated_cves_count": len(
+                    {doc["cve_id"] for doc in docs if doc.get("mitigation_status") == "not_mitigated"}
+                ),
                 "updated_at": now,
             }
         )
@@ -235,6 +278,7 @@ def build_host_cve_impact_summary(enriched_docs: list[dict[str, Any]]) -> list[d
                 "vendor_severity": highest.get("vendor_severity", ""),
                 "vendor_status": highest.get("vendor_status", ""),
                 "updated_at": now,
+                **_workaround_fields(docs),
             }
         )
     return summaries

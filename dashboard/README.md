@@ -78,6 +78,7 @@ Controls:
 - `Ubuntu verification status`: dropdown on `verification_status.keyword`.
 - `Fix status`: dropdown on `fix_status.keyword`.
 - `Patch decision`: dropdown on `patch_decision.keyword`.
+- `Mitigation status`: dropdown on `mitigation_status.keyword`.
 
 These fields come from `wazuh-vuln-host-cve-impact-latest`, which has one row per impacted CVE/host pair.
 
@@ -110,9 +111,9 @@ Data view: `wazuh-vuln-cve-summary-latest`
 Filters:
 
 - `affected_hosts_count >= 1`
-- query: `patch_decision:patch_scheduled or patch_decision:cleanup_old_kernel`
+- query: `patch_decision:patch_scheduled or patch_decision:cleanup_old_kernel or patch_decision:workaround_active`
 
-This means vendor confirms affected and patching should be planned, but it is not classified as immediate critical impact. It also includes `cleanup_old_kernel`, where an old vulnerable Ubuntu kernel package is still installed but is not the running kernel.
+This means vendor confirms affected and patching should be planned, but it is not classified as immediate critical impact. It also includes `cleanup_old_kernel`, where an old vulnerable Ubuntu kernel package is still installed but is not the running kernel, and `workaround_active`, where Wazuh SCA verified an approved workaround.
 
 ### Columns
 
@@ -128,6 +129,10 @@ Columns:
 - `fix_available`
 - `vendor_fixed_version`
 - `recommended_action`
+- `mitigation_status`
+- `workaround_verified`
+- `workaround_check_passed`
+- `workaround_check_failed`
 - `affected_hosts_count`
 - `affected_packages`
 - `priority`
@@ -166,6 +171,10 @@ Columns:
 - `fix_available`
 - `vendor_fixed_version`
 - `recommended_action`
+- `mitigation_status`
+- `workaround_verified`
+- `workaround_check_passed`
+- `workaround_check_failed`
 - `agent_id`
 - `agent_name`
 - `agent_ip`

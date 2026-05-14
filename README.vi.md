@@ -280,6 +280,13 @@ exposure_status
 patch_decision
 impact_assessment
 recommended_action
+mitigation_status
+workaround_verified
+workaround_check_passed
+workaround_check_failed
+workaround_policy_ids
+workaround_check_ids
+workaround_check_titles
 ```
 
 Ý nghĩa trạng thái:
@@ -304,6 +311,7 @@ patch_decision: cleanup_old_kernel
 
 ```text
 patch_now       -> vendor xác nhận affected và threat/exposure cao
+workaround_active -> package vẫn vulnerable, nhưng Wazuh SCA đã verify workaround trên host
 patch_scheduled -> vendor xác nhận affected và đã có fixed version
 cleanup_old_kernel -> kernel package cũ còn installed nhưng không phải kernel đang chạy
 monitor         -> affected hoặc có thể affected, nhưng exploitability thấp hoặc chưa có fix
@@ -317,6 +325,73 @@ Logic này cố ý thận trọng:
 - `public_poc=yes` chỉ tăng độ gấp sau khi CVE đó được xác định đang impact hệ thống.
 - `vendor_not_found` nhưng threat cao sẽ thành `needs_review`, không tự động coi là `patch_now`.
 - Kernel finding chỉ thật sự gấp nếu vulnerable package khớp với running kernel. Kernel cũ không còn running sẽ được xem là việc cleanup, không phải runtime critical impact.
+
+## Verify Workaround Bằng Wazuh SCA
+
+Phase này không dùng `WORKAROUND_FEED_FILE`. Enricher đọc kết quả Wazuh SCA từ `WAZUH_SCA_INDEX_PATTERN` và parse CVE ID trong SCA check ID/title. Nếu tất cả SCA check khớp với `agent_id + CVE` đều pass, finding được xem là đã mitigated:
+
+```yaml
+SCA_WORKAROUND_ENABLED: true
+WAZUH_SCA_INDEX_PATTERN: wazuh-states-sca-*
+```
+
+Quy ước đặt tên check:
+
+```text
+workaround:CVE-2026-31431:algif_aead_blacklist_config
+workaround:CVE-2026-31431:algif_aead_not_loaded
+```
+
+Logic:
+
+```text
+SCA checks khớp đều pass       -> mitigation_status: mitigated
+có ít nhất một check fail      -> mitigation_status: not_mitigated
+không có SCA result khớp       -> mitigation_status: unknown
+```
+
+Nếu finding đang là `patch_now` nhưng `mitigation_status` thành `mitigated`, app đổi thành:
+
+```text
+patch_decision: workaround_active
+```
+
+Nghĩa là package vẫn vulnerable và vẫn cần patch sau, nhưng workaround đã được verify nên giảm rủi ro khai thác ngay lúc này và không còn nằm trong alert mặc định `Critical Real Impact`.
+
+Ví dụ policy:
+
+```bash
+sudo cp sca/ubuntu-workaround-verification.yml.example \
+  /var/ossec/etc/shared/ubuntu-workaround-verification.yml
+```
+
+Bật policy trong `ossec.conf` của agent hoặc agent group:
+
+```xml
+<sca>
+  <enabled>yes</enabled>
+  <scan_on_start>yes</scan_on_start>
+  <interval>15m</interval>
+  <policies>
+    <policy>/var/ossec/etc/shared/ubuntu-workaround-verification.yml</policy>
+  </policies>
+</sca>
+```
+
+Restart agent và chờ SCA result:
+
+```bash
+sudo systemctl restart wazuh-agent
+```
+
+Sau đó enrich lại:
+
+```bash
+/opt/wazuh-enrich/.venv/bin/python3 /opt/wazuh-enrich/vuln_enricher.py \
+  --config /etc/wazuh-enrich/config.yaml \
+  --log-format text \
+  enrich-all
+```
 
 ## Chạy Lần Đầu
 

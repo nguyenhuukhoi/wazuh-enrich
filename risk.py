@@ -81,6 +81,18 @@ def finding_key(cve_id: str, agent_id: str, package_name: str, package_version: 
     )
 
 
+def default_mitigation() -> dict[str, Any]:
+    return {
+        "mitigation_status": "unknown",
+        "workaround_verified": False,
+        "workaround_check_passed": 0,
+        "workaround_check_failed": 0,
+        "workaround_policy_ids": [],
+        "workaround_check_ids": [],
+        "workaround_check_titles": [],
+    }
+
+
 def classify_priority(kev: bool, epss_score: float, cvss_score: float) -> tuple[str, str]:
     if kev:
         return "P0", "CVE nam trong CISA KEV"
@@ -404,6 +416,7 @@ def normalize_finding(
     agent_metadata: dict[str, dict[str, Any]] | None = None,
     ubuntu_records: dict[tuple[str, str, str], UbuntuOvalRecord] | None = None,
     ubuntu_osv_records: dict[tuple[str, str, str], UbuntuOsvRecord] | None = None,
+    mitigation_records: dict[tuple[str, str], dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     cve_id = str(first_path(source, ["vulnerability.id", "vulnerability.cve"], "")).upper()
     if not cve_id.startswith("CVE-"):
@@ -455,6 +468,11 @@ def normalize_finding(
         system_exposure,
         decision,
     )
+    mitigation = dict(default_mitigation())
+    mitigation.update((mitigation_records or {}).get((agent_id, cve_id), {}))
+    if mitigation.get("mitigation_status") == "mitigated" and decision == "patch_now":
+        decision = "workaround_active"
+        assessment = "workaround_verified_monitor_patch"
 
     doc = {
         "cve_id": cve_id,
@@ -497,8 +515,10 @@ def normalize_finding(
             bool(verification.get("fix_available")),
             str(verification.get("vendor_fixed_version", "")),
             system_exposure,
+            str(mitigation.get("mitigation_status", "unknown")),
         ),
         "enriched_at": datetime.now(timezone.utc).isoformat(),
+        **mitigation,
         **verification,
     }
     if poc:
@@ -517,9 +537,14 @@ def recommended_action(
     fix_available: bool = False,
     fixed_version: str = "",
     exposure: str = "",
+    mitigation_status: str = "unknown",
 ) -> str:
     fixed = f" Len fixed version: {fixed_version}." if fixed_version else ""
+    if decision == "workaround_active":
+        return f"Workaround da duoc verify tren host. Van can theo doi vendor patch va patch khi co maintenance window.{fixed}"
     if decision == "patch_now":
+        if mitigation_status == "not_mitigated":
+            return f"Patch hoac mitigate ngay; workaround check dang fail tren host.{fixed}"
         if exposure == "running_kernel":
             return f"Patch kernel ngay va reboot sang kernel da fix.{fixed}"
         if kev:

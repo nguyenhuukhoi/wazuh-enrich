@@ -30,6 +30,10 @@
         "exposure_status",
         "impact_assessment",
         "recommended_action",
+        "mitigation_status",
+        "workaround_verified",
+        "workaround_check_passed",
+        "workaround_check_failed",
         "reason"
       ]
     }
@@ -50,6 +54,7 @@
         "os_name",
         "total_cves",
         "patch_now_count",
+        "workaround_active_count",
         "patch_scheduled_count",
         "cleanup_old_kernel_count",
         "needs_review_count",
@@ -112,6 +117,10 @@
         "fix_available",
         "vendor_fixed_version",
         "recommended_action",
+        "mitigation_status",
+        "workaround_verified",
+        "workaround_check_passed",
+        "workaround_check_failed",
         "priority",
         "epss_score",
         "cvss_score",
@@ -184,7 +193,7 @@
       "query": {
         "bool": {
           "filter": [
-            { "terms": { "patch_decision": ["patch_scheduled", "cleanup_old_kernel"] } },
+            { "terms": { "patch_decision": ["patch_scheduled", "cleanup_old_kernel", "workaround_active"] } },
             { "range": { "affected_hosts_count": { "gte": 1 } } }
           ]
         }
@@ -204,6 +213,10 @@
         "fix_available",
         "vendor_fixed_version",
         "recommended_action",
+        "mitigation_status",
+        "workaround_verified",
+        "workaround_check_passed",
+        "workaround_check_failed",
         "priority",
         "epss_score",
         "cvss_score",

@@ -18,7 +18,7 @@ NEEDS_REVIEW_QUERY = (
     "((verification_status:vendor_not_found or verification_status:needs_manual_check or verification_status:not_verified) "
     "and (kev:true or public_poc:true or epss_score >= 0.7))"
 )
-PATCH_SCHEDULED_QUERY = "patch_decision:patch_scheduled or patch_decision:cleanup_old_kernel"
+PATCH_SCHEDULED_QUERY = "patch_decision:patch_scheduled or patch_decision:cleanup_old_kernel or patch_decision:workaround_active"
 
 
 def dumps(value: Any) -> str:
@@ -251,6 +251,22 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
             },
             "parent": "",
         },
+        {
+            "id": "mitigation_status",
+            "fieldName": "mitigation_status.keyword",
+            "indexPatternRefName": "control_5_index",
+            "label": "Mitigation status",
+            "type": "list",
+            "options": {
+                "type": "terms",
+                "multiselect": True,
+                "size": 20,
+                "order": "desc",
+                "useTimeFilter": True,
+                "ignoreTimeout": False,
+            },
+            "parent": "",
+        },
     ]
     vis_state = {
         "title": title,
@@ -281,6 +297,7 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
             {"name": "control_2_index", "type": "index-pattern", "id": HOST_CVE_IMPACT},
             {"name": "control_3_index", "type": "index-pattern", "id": HOST_CVE_IMPACT},
             {"name": "control_4_index", "type": "index-pattern", "id": HOST_CVE_IMPACT},
+            {"name": "control_5_index", "type": "index-pattern", "id": HOST_CVE_IMPACT},
         ],
     }
 
@@ -375,6 +392,10 @@ def build_objects() -> list[dict[str, Any]]:
         "fix_available",
         "vendor_fixed_version",
         "recommended_action",
+        "mitigation_status",
+        "workaround_verified",
+        "workaround_check_passed",
+        "workaround_check_failed",
         "affected_hosts_count",
         "affected_packages",
         "priority",
@@ -399,6 +420,10 @@ def build_objects() -> list[dict[str, Any]]:
         "fix_available",
         "vendor_fixed_version",
         "recommended_action",
+        "mitigation_status",
+        "workaround_verified",
+        "workaround_check_passed",
+        "workaround_check_failed",
         "agent_id",
         "agent_name",
         "agent_ip",

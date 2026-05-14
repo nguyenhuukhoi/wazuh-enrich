@@ -34,6 +34,8 @@ class Settings:
     wazuh_ca_cert: str
     verify_ssl: bool
     wazuh_vuln_index_pattern: str
+    wazuh_sca_index_pattern: str
+    sca_workaround_enabled: bool
     agent_inventory_index_patterns: list[str]
     inventory_watch_timestamp_fields: list[str]
     enriched_index_prefix: str
@@ -98,6 +100,8 @@ def load_config(path: str = "config.yaml") -> Settings:
         wazuh_ca_cert=cfg.get("WAZUH_CA_CERT", ""),
         verify_ssl=_as_bool(cfg.get("VERIFY_SSL", True)),
         wazuh_vuln_index_pattern=cfg["WAZUH_VULN_INDEX_PATTERN"],
+        wazuh_sca_index_pattern=cfg.get("WAZUH_SCA_INDEX_PATTERN", "wazuh-states-sca-*"),
+        sca_workaround_enabled=_as_bool(cfg.get("SCA_WORKAROUND_ENABLED", True)),
         agent_inventory_index_patterns=_as_list(
             cfg.get(
                 "AGENT_INVENTORY_INDEX_PATTERNS",

@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from wazuh_client import WazuhIndexerClient
 
 
@@ -12,3 +14,32 @@ def test_looks_like_ip_field_accepts_wazuh_inventory_ip_fields():
 def test_looks_like_ip_field_rejects_unrelated_fields():
     assert not WazuhIndexerClient._looks_like_ip_field("package.name", {"keyword": {}})
     assert not WazuhIndexerClient._looks_like_ip_field("host.os.name", {"keyword": {}})
+
+
+def test_sca_workaround_results_parse_cve_from_check_title():
+    client = object.__new__(WazuhIndexerClient)
+    client.settings = SimpleNamespace(
+        sca_workaround_enabled=True,
+        wazuh_sca_index_pattern="wazuh-states-sca-*",
+        scroll_ttl="5m",
+        page_size=2000,
+    )
+    client._scroll_sources = lambda index, body, ignore_unavailable=False: iter(
+        [
+            {
+                "agent": {"id": "001"},
+                "policy": {"id": "ubuntu-workarounds"},
+                "check": {
+                    "id": "100001",
+                    "title": "workaround:CVE-2026-31431:algif_aead_not_loaded",
+                    "result": "passed",
+                },
+            }
+        ]
+    )
+
+    records = client.sca_workaround_results()
+
+    assert records[("001", "CVE-2026-31431")]["mitigation_status"] == "mitigated"
+    assert records[("001", "CVE-2026-31431")]["workaround_verified"] is True
+    assert records[("001", "CVE-2026-31431")]["workaround_check_passed"] == 1

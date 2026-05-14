@@ -335,3 +335,44 @@ def test_normalize_finding_marks_old_kernel_for_cleanup_after_reboot_to_fixed_ke
     assert doc["exposure_status"] == "non_running_kernel_installed"
     assert doc["patch_decision"] == "cleanup_old_kernel"
     assert "purge old" in doc["recommended_action"]
+
+
+def test_normalize_finding_marks_verified_workaround_active():
+    source = {
+        "agent": {"id": "001", "name": "ubuntu-1"},
+        "host": {"os": {"name": "Ubuntu", "version": "24.04", "kernel": "6.8.0-36-generic"}},
+        "vulnerability": {"id": "CVE-2026-31431", "score": {"base": 7.8}},
+        "package": {"name": "linux-image-6.8.0-36-generic", "version": "6.8.0-36.36"},
+    }
+    records = {
+        ("noble", "CVE-2026-31431", "linux"): UbuntuOsvRecord(
+            cve_id="CVE-2026-31431",
+            release="noble",
+            package_name="linux",
+            fixed_version="",
+        )
+    }
+
+    doc = normalize_finding(
+        source,
+        kev_cves={"CVE-2026-31431"},
+        epss_records={},
+        ubuntu_osv_records=records,
+        mitigation_records={
+            ("001", "CVE-2026-31431"): {
+                "mitigation_status": "mitigated",
+                "workaround_verified": True,
+                "workaround_check_passed": 2,
+                "workaround_check_failed": 0,
+                "workaround_policy_ids": ["ubuntu-workarounds"],
+                "workaround_check_ids": ["1001", "1002"],
+                "workaround_check_titles": ["CVE-2026-31431 module not loaded"],
+            }
+        },
+    )
+
+    assert doc is not None
+    assert doc["patch_decision"] == "workaround_active"
+    assert doc["mitigation_status"] == "mitigated"
+    assert doc["workaround_verified"] is True
+    assert "Workaround da duoc verify" in doc["recommended_action"]

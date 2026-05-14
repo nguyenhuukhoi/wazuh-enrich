@@ -12,11 +12,12 @@ LOG = logging.getLogger(__name__)
 
 PATCH_DECISION_ORDER = {
     "patch_now": 0,
-    "needs_review": 1,
-    "patch_scheduled": 2,
-    "cleanup_old_kernel": 3,
-    "monitor": 4,
-    "no_action": 5,
+    "workaround_active": 1,
+    "needs_review": 2,
+    "patch_scheduled": 3,
+    "cleanup_old_kernel": 4,
+    "monitor": 5,
+    "no_action": 6,
 }
 ALERT_SCOPES = {"critical_real_impact", "needs_review", "patch_scheduled", "all"}
 
@@ -245,7 +246,7 @@ class AlertManager:
                 and (bool(cve.get("kev")) or bool(cve.get("public_poc")) or epss >= epss_high)
             )
         if self.alert_scope == "patch_scheduled":
-            return patch in {"patch_scheduled", "cleanup_old_kernel"}
+            return patch in {"patch_scheduled", "cleanup_old_kernel", "workaround_active"}
         return False
 
     def _scope_label(self) -> str:
@@ -267,6 +268,7 @@ class AlertManager:
         return (
             f"{index}. {cve.get('cve_id')} | patch={cve.get('patch_decision', 'monitor')} "
             f"| Ubuntu={cve.get('verification_status', 'not_verified')} "
+            f"| mitigation={cve.get('mitigation_status', 'unknown')} "
             f"| exploit={cve.get('exploitability_status', 'unknown')} "
             f"| KEV={'yes' if cve.get('kev') else 'no'} | PoC={'yes' if cve.get('public_poc') else 'no'} "
             f"| EPSS={float(cve.get('epss_score', 0.0)):.2f} "

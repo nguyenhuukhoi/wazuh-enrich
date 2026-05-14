@@ -304,6 +304,13 @@ exposure_status
 patch_decision
 impact_assessment
 recommended_action
+mitigation_status
+workaround_verified
+workaround_check_passed
+workaround_check_failed
+workaround_policy_ids
+workaround_check_ids
+workaround_check_titles
 ```
 
 Important statuses:
@@ -330,6 +337,7 @@ Patch decision is the field to use when deciding whether to patch the system:
 
 ```text
 patch_now       -> vendor confirms affected and the threat/exposure is high
+workaround_active -> host is still vulnerable by package version, but Wazuh SCA verified the workaround
 patch_scheduled -> vendor confirms affected and a fixed version exists
 cleanup_old_kernel -> vulnerable old kernel package is installed but is not the running kernel
 monitor         -> affected or possibly affected, but exploitability is low or no fix exists yet
@@ -343,6 +351,73 @@ The decision is intentionally conservative:
 - `public_poc=yes` raises urgency only after the CVE is known to impact the system.
 - `vendor_not_found` with high threat becomes `needs_review`, not automatic `patch_now`.
 - Kernel findings become urgent when the vulnerable package matches the running kernel. Old non-running kernel packages are treated as cleanup work, not immediate runtime exploit impact.
+
+## Workaround Verification With Wazuh SCA
+
+This phase does not use `WORKAROUND_FEED_FILE`. The enricher reads Wazuh SCA results from `WAZUH_SCA_INDEX_PATTERN` and parses CVE IDs from SCA check IDs/titles. If all matching SCA checks for `agent_id + CVE` pass, the finding is marked as mitigated:
+
+```yaml
+SCA_WORKAROUND_ENABLED: true
+WAZUH_SCA_INDEX_PATTERN: wazuh-states-sca-*
+```
+
+Required naming convention:
+
+```text
+workaround:CVE-2026-31431:algif_aead_blacklist_config
+workaround:CVE-2026-31431:algif_aead_not_loaded
+```
+
+Result logic:
+
+```text
+matching SCA checks pass             -> mitigation_status: mitigated
+one or more matching SCA checks fail -> mitigation_status: not_mitigated
+no matching SCA result               -> mitigation_status: unknown
+```
+
+If a finding was `patch_now` but `mitigation_status` becomes `mitigated`, the app changes it to:
+
+```text
+patch_decision: workaround_active
+```
+
+This means the package is still vulnerable and should be patched later, but the verified workaround reduces immediate exploitability and removes it from the default `Critical Real Impact` alert scope.
+
+Example SCA policy:
+
+```bash
+sudo cp sca/ubuntu-workaround-verification.yml.example \
+  /var/ossec/etc/shared/ubuntu-workaround-verification.yml
+```
+
+Enable the policy on the agent or agent group `ossec.conf`:
+
+```xml
+<sca>
+  <enabled>yes</enabled>
+  <scan_on_start>yes</scan_on_start>
+  <interval>15m</interval>
+  <policies>
+    <policy>/var/ossec/etc/shared/ubuntu-workaround-verification.yml</policy>
+  </policies>
+</sca>
+```
+
+Restart the agent and wait for SCA results:
+
+```bash
+sudo systemctl restart wazuh-agent
+```
+
+Then run:
+
+```bash
+/opt/wazuh-enrich/.venv/bin/python3 /opt/wazuh-enrich/vuln_enricher.py \
+  --config /etc/wazuh-enrich/config.yaml \
+  --log-format text \
+  enrich-all
+```
 
 ## First Run
 
@@ -626,6 +701,7 @@ impact_host
 patch_decision
 verification_status
 fix_status
+mitigation_status
 ```
 
 Those fields are written only for CVEs that Wazuh has detected on your agents, so the dropdowns do not list global/non-impact CVEs.
@@ -653,6 +729,8 @@ or vendor confirmation is incomplete while KEV/public PoC/EPSS-high is present
 
 Patch Scheduled:
 patch_decision:patch_scheduled
+or patch_decision:cleanup_old_kernel
+or patch_decision:workaround_active
 ```
 
 These show only CVEs that Wazuh has actually detected on your agents, not a global internet CVE list.

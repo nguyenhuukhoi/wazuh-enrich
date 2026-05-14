@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
@@ -24,6 +25,7 @@ KNOWN_AGENT_IP_FIELDS = [
     "related.ip",
     "agent.ip",
 ]
+CVE_RE = re.compile(r"CVE-\d{4}-\d{4,}", re.IGNORECASE)
 
 SOURCE_FIELDS = [
     "agent.id",
@@ -109,6 +111,13 @@ class WazuhIndexerClient:
                     "cvss_score": {"type": "float"},
                     "priority": {"type": "keyword"},
                     "patch_decision": {"type": "keyword"},
+                    "mitigation_status": {"type": "keyword"},
+                    "workaround_verified": {"type": "boolean"},
+                    "workaround_check_passed": {"type": "integer"},
+                    "workaround_check_failed": {"type": "integer"},
+                    "workaround_policy_ids": {"type": "keyword"},
+                    "workaround_check_ids": {"type": "keyword"},
+                    "workaround_check_titles": {"type": "keyword"},
                     "exploitability_status": {"type": "keyword"},
                     "exposure_status": {"type": "keyword"},
                     "impact_assessment": {"type": "keyword"},
@@ -127,6 +136,13 @@ class WazuhIndexerClient:
                     "cve_year": {"type": "integer"},
                     "priority": {"type": "keyword"},
                     "patch_decision": {"type": "keyword"},
+                    "mitigation_status": {"type": "keyword"},
+                    "workaround_verified": {"type": "boolean"},
+                    "workaround_check_passed": {"type": "integer"},
+                    "workaround_check_failed": {"type": "integer"},
+                    "workaround_policy_ids": {"type": "keyword"},
+                    "workaround_check_ids": {"type": "keyword"},
+                    "workaround_check_titles": {"type": "keyword"},
                     "exploitability_status": {"type": "keyword"},
                     "exposure_status": {"type": "keyword"},
                     "impact_assessment": {"type": "keyword"},
@@ -154,9 +170,12 @@ class WazuhIndexerClient:
                     "os_name": {"type": "keyword"},
                     "os_version": {"type": "keyword"},
                     "patch_now_count": {"type": "integer"},
+                    "workaround_active_count": {"type": "integer"},
                     "patch_scheduled_count": {"type": "integer"},
                     "cleanup_old_kernel_count": {"type": "integer"},
                     "needs_review_count": {"type": "integer"},
+                    "mitigated_cves_count": {"type": "integer"},
+                    "not_mitigated_cves_count": {"type": "integer"},
                     "total_cves": {"type": "integer"},
                     "p0_count": {"type": "integer"},
                     "p1_count": {"type": "integer"},
@@ -181,6 +200,13 @@ class WazuhIndexerClient:
                     "os_version": {"type": "keyword"},
                     "priority": {"type": "keyword"},
                     "patch_decision": {"type": "keyword"},
+                    "mitigation_status": {"type": "keyword"},
+                    "workaround_verified": {"type": "boolean"},
+                    "workaround_check_passed": {"type": "integer"},
+                    "workaround_check_failed": {"type": "integer"},
+                    "workaround_policy_ids": {"type": "keyword"},
+                    "workaround_check_ids": {"type": "keyword"},
+                    "workaround_check_titles": {"type": "keyword"},
                     "exploitability_status": {"type": "keyword"},
                     "exposure_status": {"type": "keyword"},
                     "impact_assessment": {"type": "keyword"},
@@ -248,6 +274,92 @@ class WazuhIndexerClient:
             package_version = str(first_path(source, ["package.version"], ""))
             if cve_id.startswith("CVE-") and agent_id:
                 yield finding_key(cve_id, agent_id, package_name, package_version)
+
+    def sca_workaround_results(self) -> dict[tuple[str, str], dict[str, Any]]:
+        if not getattr(self.settings, "sca_workaround_enabled", False):
+            return {}
+        body = {
+            "query": {"match_all": {}},
+            "_source": [
+                "agent.id",
+                "agent.name",
+                "policy.id",
+                "policy.name",
+                "check.id",
+                "check.title",
+                "check.description",
+                "check.rationale",
+                "check.remediation",
+                "check.result",
+                "check.status",
+                "result",
+                "status",
+            ],
+        }
+        grouped: dict[tuple[str, str], dict[str, Any]] = {}
+        for source in self._scroll_sources(self.settings.wazuh_sca_index_pattern, body, ignore_unavailable=True):
+            agent_id = str(first_path(source, ["agent.id"], ""))
+            if not agent_id:
+                continue
+            text = " ".join(
+                str(first_path(source, [path], ""))
+                for path in [
+                    "check.id",
+                    "check.title",
+                    "check.description",
+                    "check.rationale",
+                    "check.remediation",
+                    "policy.id",
+                    "policy.name",
+                ]
+            )
+            cve_ids = {match.group(0).upper() for match in CVE_RE.finditer(text)}
+            if not cve_ids:
+                continue
+            result = _sca_result(first_path(source, ["check.result", "check.status", "result", "status"], ""))
+            policy_id = str(first_path(source, ["policy.id"], ""))
+            check_id = str(first_path(source, ["check.id"], ""))
+            check_title = str(first_path(source, ["check.title"], ""))
+            for cve_id in cve_ids:
+                record = grouped.setdefault(
+                    (agent_id, cve_id),
+                    {
+                        "mitigation_status": "unknown",
+                        "workaround_verified": False,
+                        "workaround_check_passed": 0,
+                        "workaround_check_failed": 0,
+                        "workaround_policy_ids": set(),
+                        "workaround_check_ids": set(),
+                        "workaround_check_titles": set(),
+                    },
+                )
+                if result == "passed":
+                    record["workaround_check_passed"] += 1
+                elif result == "failed":
+                    record["workaround_check_failed"] += 1
+                if policy_id:
+                    record["workaround_policy_ids"].add(policy_id)
+                if check_id:
+                    record["workaround_check_ids"].add(check_id)
+                if check_title:
+                    record["workaround_check_titles"].add(check_title)
+
+        normalized = {}
+        for key, record in grouped.items():
+            failed = int(record["workaround_check_failed"])
+            passed = int(record["workaround_check_passed"])
+            status = "not_mitigated" if failed else "mitigated" if passed else "unknown"
+            normalized[key] = {
+                "mitigation_status": status,
+                "workaround_verified": status == "mitigated",
+                "workaround_check_passed": passed,
+                "workaround_check_failed": failed,
+                "workaround_policy_ids": sorted(record["workaround_policy_ids"]),
+                "workaround_check_ids": sorted(record["workaround_check_ids"]),
+                "workaround_check_titles": sorted(record["workaround_check_titles"])[:20],
+            }
+        LOG.info("sca_workaround_results_loaded records=%s index=%s", len(normalized), self.settings.wazuh_sca_index_pattern)
+        return normalized
 
     def iter_index_sources(self, index: str, query: dict[str, Any] | None = None) -> Iterable[dict[str, Any]]:
         body = {"query": query or {"match_all": {}}}
@@ -581,3 +693,12 @@ class WazuhIndexerClient:
             return False
         field_types = set(caps.keys())
         return bool(field_types & {"ip", "keyword", "text"})
+
+
+def _sca_result(value: Any) -> str:
+    text = str(value).strip().lower()
+    if text in {"passed", "pass", "ok", "compliant", "true", "1"}:
+        return "passed"
+    if text in {"failed", "fail", "not_compliant", "non-compliant", "false", "0"}:
+        return "failed"
+    return "unknown"

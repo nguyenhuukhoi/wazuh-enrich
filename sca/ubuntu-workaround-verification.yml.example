@@ -1,0 +1,33 @@
+policy:
+  id: "ubuntu-workaround-verification"
+  file: "ubuntu-workaround-verification.yml"
+  name: "Ubuntu workaround verification"
+  description: "Verify approved CVE workaround steps on Ubuntu agents."
+  references:
+    - https://documentation.wazuh.com/current/user-manual/capabilities/sec-config-assessment/creating-custom-policies.html
+
+requirements:
+  title: "Ubuntu Linux"
+  description: "Run only on Ubuntu agents."
+  condition: any
+  rules:
+    - 'c:grep -qi "^ID=ubuntu" /etc/os-release && echo ubuntu || echo not_ubuntu -> r:ubuntu'
+
+checks:
+  - id: 100001
+    title: "workaround:CVE-2026-31431:algif_aead_blacklist_config"
+    description: "CVE-2026-31431 workaround check: algif_aead must be blacklisted."
+    rationale: "The workaround is considered active only when future module loads are blocked."
+    remediation: "Add 'blacklist algif_aead' under /etc/modprobe.d/ after vendor/internal approval."
+    condition: all
+    rules:
+      - 'c:sh -c "grep -R \"^[[:space:]]*blacklist[[:space:]]\\+algif_aead\\b\" /etc/modprobe.d/*.conf >/dev/null 2>&1 && echo blacklisted || echo missing" -> r:blacklisted'
+
+  - id: 100002
+    title: "workaround:CVE-2026-31431:algif_aead_not_loaded"
+    description: "CVE-2026-31431 workaround check: algif_aead must not be loaded at runtime."
+    rationale: "The blacklist prevents future loads, but the runtime module must also be unloaded."
+    remediation: "Run 'modprobe -r algif_aead' after vendor/internal approval, then re-run SCA."
+    condition: all
+    rules:
+      - 'c:sh -c "lsmod | awk \"{print \\$1}\" | grep -qx algif_aead && echo loaded || echo not_loaded" -> r:not_loaded'

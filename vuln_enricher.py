@@ -234,6 +234,7 @@ def enrich(
     malformed = 0
     latest_detected_at: str | None = None
     agent_metadata = client.agent_metadata()
+    mitigation_records = client.sca_workaround_results()
 
     for source in client.iter_vulnerability_findings(agent_id=agent_id, since=since):
         try:
@@ -245,6 +246,7 @@ def enrich(
                 agent_metadata,
                 ubuntu_records,
                 ubuntu_osv_records,
+                mitigation_records,
             )
             if not doc:
                 malformed += 1
@@ -346,6 +348,7 @@ def enrich_agent_incremental(
     old_docs = list(client.iter_index_sources(latest["enriched_index"], {"term": {"agent_id": agent_id}}))
     old_cves = {str(doc.get("cve_id", "")) for doc in old_docs if doc.get("cve_id")}
     agent_metadata = client.agent_metadata()
+    mitigation_records = client.sca_workaround_results()
     new_docs: list[dict[str, Any]] = []
     malformed = 0
     for source in client.iter_vulnerability_findings(agent_id=agent_id):
@@ -358,6 +361,7 @@ def enrich_agent_incremental(
                 agent_metadata,
                 ubuntu_records,
                 ubuntu_osv_records,
+                mitigation_records,
             )
             if doc:
                 new_docs.append(doc)
@@ -502,6 +506,7 @@ def detect_new_agents(
     baseline_dir = settings.cache_dir / "baselines"
     baseline_dir.mkdir(parents=True, exist_ok=True)
     agent_metadata = client.agent_metadata()
+    mitigation_records = client.sca_workaround_results()
 
     for agent in client.list_agents_with_vulnerabilities():
         agent_id = agent["agent_id"]
@@ -518,6 +523,7 @@ def detect_new_agents(
                 agent_metadata,
                 ubuntu_records,
                 ubuntu_osv_records,
+                mitigation_records,
             )
             if doc:
                 enriched_docs.append(doc)
