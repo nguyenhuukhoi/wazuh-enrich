@@ -279,7 +279,21 @@ class WazuhIndexerClient:
         if not getattr(self.settings, "sca_workaround_enabled", False):
             return {}
         body = {
-            "query": {"match_all": {}},
+            "query": {
+                "simple_query_string": {
+                    "query": getattr(self.settings, "sca_workaround_query", "workaround CVE"),
+                    "fields": [
+                        "check.id",
+                        "check.title",
+                        "check.description",
+                        "check.rationale",
+                        "check.remediation",
+                        "policy.id",
+                        "policy.name",
+                    ],
+                    "default_operator": "and",
+                }
+            },
             "_source": [
                 "agent.id",
                 "agent.name",

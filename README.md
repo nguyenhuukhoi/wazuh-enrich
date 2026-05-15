@@ -357,9 +357,12 @@ The decision is intentionally conservative:
 This phase does not use `WORKAROUND_FEED_FILE`. The enricher reads Wazuh SCA results from `WAZUH_SCA_INDEX_PATTERN` and parses CVE IDs from SCA check IDs/titles. If all matching SCA checks for `agent_id + CVE` pass, the finding is marked as mitigated:
 
 ```yaml
-SCA_WORKAROUND_ENABLED: true
+SCA_WORKAROUND_ENABLED: false
 WAZUH_SCA_INDEX_PATTERN: wazuh-states-sca-*
+SCA_WORKAROUND_QUERY: workaround CVE
 ```
+
+Keep `SCA_WORKAROUND_ENABLED` disabled until a small dedicated workaround policy is deployed. When enabled, the app queries only SCA checks matching `SCA_WORKAROUND_QUERY`; it must not scan all generic SCA results.
 
 Required naming convention:
 
@@ -417,6 +420,12 @@ Then run:
   --config /etc/wazuh-enrich/config.yaml \
   --log-format text \
   enrich-all
+```
+
+After the policy exists and SCA results are visible in Wazuh, enable it:
+
+```yaml
+SCA_WORKAROUND_ENABLED: true
 ```
 
 ## First Run

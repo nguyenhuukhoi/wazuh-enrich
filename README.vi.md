@@ -331,9 +331,12 @@ Logic này cố ý thận trọng:
 Phase này không dùng `WORKAROUND_FEED_FILE`. Enricher đọc kết quả Wazuh SCA từ `WAZUH_SCA_INDEX_PATTERN` và parse CVE ID trong SCA check ID/title. Nếu tất cả SCA check khớp với `agent_id + CVE` đều pass, finding được xem là đã mitigated:
 
 ```yaml
-SCA_WORKAROUND_ENABLED: true
+SCA_WORKAROUND_ENABLED: false
 WAZUH_SCA_INDEX_PATTERN: wazuh-states-sca-*
+SCA_WORKAROUND_QUERY: workaround CVE
 ```
+
+Giữ `SCA_WORKAROUND_ENABLED` là `false` cho tới khi bạn deploy policy workaround riêng, nhỏ và có naming convention rõ. Khi bật, app chỉ query SCA check khớp `SCA_WORKAROUND_QUERY`; không được scan toàn bộ generic SCA result.
 
 Quy ước đặt tên check:
 
@@ -391,6 +394,12 @@ Sau đó enrich lại:
   --config /etc/wazuh-enrich/config.yaml \
   --log-format text \
   enrich-all
+```
+
+Sau khi policy đã có và Wazuh đã có SCA result, mới bật:
+
+```yaml
+SCA_WORKAROUND_ENABLED: true
 ```
 
 ## Chạy Lần Đầu

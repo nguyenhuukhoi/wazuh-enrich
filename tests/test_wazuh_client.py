@@ -21,6 +21,7 @@ def test_sca_workaround_results_parse_cve_from_check_title():
     client.settings = SimpleNamespace(
         sca_workaround_enabled=True,
         wazuh_sca_index_pattern="wazuh-states-sca-*",
+        sca_workaround_query="workaround CVE",
         scroll_ttl="5m",
         page_size=2000,
     )
