@@ -25,6 +25,7 @@ POC_BUILD:
   output_file: {output_file}
 WORKAROUND_FEED_FILE: {tmp_path / "feeds" / "cve_workarounds.yaml"}
 WORKAROUND_RESULT_FILE: {tmp_path / "feeds" / "workaround_results.json"}
+WORKAROUND_VERIFICATION_PRIORITY: ansible_first
 WORKAROUND_COLLECTOR:
   enabled: true
   output_file: {tmp_path / "feeds" / "cve_workarounds.yaml"}
@@ -40,6 +41,7 @@ WORKAROUND_COLLECTOR:
     assert settings.poc_feed_file == Path(output_file)
     assert settings.workaround_feed_file == tmp_path / "feeds" / "cve_workarounds.yaml"
     assert settings.workaround_result_file == tmp_path / "feeds" / "workaround_results.json"
+    assert settings.workaround_verification_priority == "ansible_first"
     assert settings.poc_build["enabled"] is True
     assert settings.workaround_collector["enabled"] is True
     assert settings.workaround_collector["output_file"] == str(tmp_path / "feeds" / "cve_workarounds.yaml")

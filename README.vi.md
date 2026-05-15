@@ -346,11 +346,19 @@ Config:
 WORKAROUND_FEED_FILE: /var/lib/wazuh-enrich/feeds/cve_workarounds.yaml
 WORKAROUND_RESULT_FILE: /var/lib/wazuh-enrich/feeds/workaround_results.json
 SCA_WORKAROUND_ENABLED: false
+WORKAROUND_VERIFICATION_PRIORITY: sca_first
 WORKAROUND_COLLECTOR:
   enabled: false
   output_file: /var/lib/wazuh-enrich/feeds/cve_workarounds.yaml
   sources:
     - ubuntu
+```
+
+`WORKAROUND_VERIFICATION_PRIORITY` quyết định khi cùng một `agent_id + cve_id` có cả Ansible và SCA verification:
+
+```text
+sca_first     -> SCA override Ansible. Đây là behavior cũ.
+ansible_first -> Ansible override SCA.
 ```
 
 `WORKAROUND_FEED_FILE` là metadata curated để dashboard biết workaround lấy từ đâu và playbook nào xử lý:

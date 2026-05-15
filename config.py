@@ -55,6 +55,7 @@ class Settings:
     poc_feed_file: Path | None
     workaround_feed_file: Path | None
     workaround_result_file: Path | None
+    workaround_verification_priority: str
     telegram_bot_token: str
     telegram_chat_id: str
     alert_thresholds: dict[str, Any]
@@ -141,6 +142,9 @@ def load_config(path: str = "config.yaml") -> Settings:
         poc_feed_file=Path(cfg["POC_FEED_FILE"]) if cfg.get("POC_FEED_FILE") else _poc_build_output(cfg),
         workaround_feed_file=Path(cfg["WORKAROUND_FEED_FILE"]) if cfg.get("WORKAROUND_FEED_FILE") else None,
         workaround_result_file=Path(cfg["WORKAROUND_RESULT_FILE"]) if cfg.get("WORKAROUND_RESULT_FILE") else None,
+        workaround_verification_priority=_normalize_workaround_priority(
+            cfg.get("WORKAROUND_VERIFICATION_PRIORITY", "sca_first")
+        ),
         telegram_bot_token=cfg.get("TELEGRAM_BOT_TOKEN", ""),
         telegram_chat_id=cfg.get("TELEGRAM_CHAT_ID", ""),
         alert_thresholds=cfg["ALERT_THRESHOLDS"],
@@ -177,6 +181,13 @@ def _normalize_workaround_collector(raw: dict[str, Any]) -> dict[str, Any]:
     if cfg.get("output_file"):
         cfg["output_file"] = str(cfg["output_file"])
     return cfg
+
+
+def _normalize_workaround_priority(value: Any) -> str:
+    priority = str(value or "sca_first").strip().lower()
+    if priority not in {"sca_first", "ansible_first"}:
+        raise ValueError("WORKAROUND_VERIFICATION_PRIORITY must be sca_first or ansible_first")
+    return priority
 
 
 def _normalize_ubuntu_oval(raw: dict[str, Any]) -> dict[str, Any]:

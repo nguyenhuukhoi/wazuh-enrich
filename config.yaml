@@ -46,6 +46,10 @@ POC_FEED_FILE: ${POC_FEED_FILE}
 # Ansible should apply/verify workarounds and write WORKAROUND_RESULT_FILE.
 WORKAROUND_FEED_FILE: /var/lib/wazuh-enrich/feeds/cve_workarounds.yaml
 WORKAROUND_RESULT_FILE: /var/lib/wazuh-enrich/feeds/workaround_results.json
+# If the same agent_id + CVE has both Ansible and SCA verification:
+# sca_first keeps the old behavior: SCA overrides Ansible.
+# ansible_first lets Ansible override SCA.
+WORKAROUND_VERIFICATION_PRIORITY: sca_first
 
 # Optional workaround collector. It searches vendor pages for workaround
 # candidates and writes WORKAROUND_FEED_FILE. Keep review_status=needs_review

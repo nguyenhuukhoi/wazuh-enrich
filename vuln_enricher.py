@@ -174,10 +174,19 @@ def load_local_or_sync_feeds(
 def load_mitigation_records(settings: Settings, client: WazuhIndexerClient) -> dict[tuple[str, str], dict[str, Any]]:
     feed = load_workaround_feed(settings.workaround_feed_file)
     ansible_results = load_workaround_results(settings.workaround_result_file)
-    records = build_mitigation_records(feed, ansible_results)
+    ansible_records = build_mitigation_records(feed, ansible_results)
     sca_records = client.sca_workaround_results()
-    if sca_records:
-        records.update(sca_records)
+    if settings.workaround_verification_priority == "ansible_first":
+        records = {**sca_records, **ansible_records}
+    else:
+        records = {**ansible_records, **sca_records}
+    LOG.info(
+        "workaround_records_loaded ansible_records=%s sca_records=%s priority=%s merged=%s",
+        len(ansible_records),
+        len(sca_records),
+        settings.workaround_verification_priority,
+        len(records),
+    )
     return records
 
 
