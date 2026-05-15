@@ -50,7 +50,7 @@ WORKAROUND_COLLECTOR:
     assert settings.sca_sync["enabled"] is False
     assert settings.sca_sync["output_index_prefix"] == "wazuh-enrich-sca-results"
     assert settings.sca_workaround_enabled is False
-    assert settings.wazuh_sca_index_pattern == "wazuh-states-sca-*,wazuh-enrich-sca-results-*"
+    assert settings.wazuh_sca_index_pattern == "wazuh-enrich-sca-results-latest"
     assert settings.sca_workaround_query == "workaround CVE"
     assert settings.host_cve_impact_index_prefix == "wazuh-vuln-host-cve-impact"
     assert settings.agent_inventory_index_patterns == [

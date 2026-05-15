@@ -350,7 +350,7 @@ Config:
 WORKAROUND_FEED_FILE: /var/lib/wazuh-enrich/feeds/cve_workarounds.yaml
 WORKAROUND_RESULT_FILE: /var/lib/wazuh-enrich/feeds/workaround_results.json
 SCA_WORKAROUND_ENABLED: false
-WAZUH_SCA_INDEX_PATTERN: wazuh-states-sca-*,wazuh-enrich-sca-results-*
+WAZUH_SCA_INDEX_PATTERN: wazuh-enrich-sca-results-latest
 WORKAROUND_VERIFICATION_PRIORITY: sca_first
 WORKAROUND_COLLECTOR:
   enabled: false
@@ -377,7 +377,7 @@ WAZUH_API_PASSWORD: ${WAZUH_API_PASSWORD}
 WAZUH_API_VERIFY_SSL: false
 
 SCA_WORKAROUND_ENABLED: true
-WAZUH_SCA_INDEX_PATTERN: wazuh-states-sca-*,wazuh-enrich-sca-results-*
+WAZUH_SCA_INDEX_PATTERN: wazuh-enrich-sca-results-latest
 SCA_SYNC:
   enabled: true
   interval_seconds: 900
@@ -405,7 +405,9 @@ Sau đó enrich lại:
   enrich-all
 ```
 
-SCA sync chỉ lấy policy/check match `SCA_SYNC.policy_query` từ các agent đang có vulnerability finding, rồi ghi vào `wazuh-enrich-sca-results-YYYY.MM.DD`.
+SCA sync chỉ lấy policy/check match `SCA_SYNC.policy_query` từ các agent đang có vulnerability finding. Nó ghi cả `wazuh-enrich-sca-results-YYYY.MM.DD` để giữ lịch sử và `wazuh-enrich-sca-results-latest` cho trạng thái hiện tại của app/dashboard.
+
+Mặc định app chỉ đọc `wazuh-enrich-sca-results-latest` để mitigation status luôn khớp với lần collector mới nhất. Nếu sau này muốn đọc thêm native Wazuh SCA document, đổi thành `WAZUH_SCA_INDEX_PATTERN: wazuh-states-sca-*,wazuh-enrich-sca-results-latest`.
 
 `WORKAROUND_FEED_FILE` là metadata curated để dashboard biết workaround lấy từ đâu và playbook nào xử lý:
 

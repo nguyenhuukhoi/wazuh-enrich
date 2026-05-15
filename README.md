@@ -376,7 +376,7 @@ Config:
 WORKAROUND_FEED_FILE: /var/lib/wazuh-enrich/feeds/cve_workarounds.yaml
 WORKAROUND_RESULT_FILE: /var/lib/wazuh-enrich/feeds/workaround_results.json
 SCA_WORKAROUND_ENABLED: false
-WAZUH_SCA_INDEX_PATTERN: wazuh-states-sca-*,wazuh-enrich-sca-results-*
+WAZUH_SCA_INDEX_PATTERN: wazuh-enrich-sca-results-latest
 WORKAROUND_VERIFICATION_PRIORITY: sca_first
 WORKAROUND_COLLECTOR:
   enabled: false
@@ -403,7 +403,7 @@ WAZUH_API_PASSWORD: ${WAZUH_API_PASSWORD}
 WAZUH_API_VERIFY_SSL: false
 
 SCA_WORKAROUND_ENABLED: true
-WAZUH_SCA_INDEX_PATTERN: wazuh-states-sca-*,wazuh-enrich-sca-results-*
+WAZUH_SCA_INDEX_PATTERN: wazuh-enrich-sca-results-latest
 SCA_SYNC:
   enabled: true
   interval_seconds: 900
@@ -431,7 +431,9 @@ Then enrich:
   enrich-all
 ```
 
-The SCA sync only pulls policies/checks matching `SCA_SYNC.policy_query` from agents that currently have active vulnerability findings, then writes `wazuh-enrich-sca-results-YYYY.MM.DD`.
+The SCA sync only pulls policies/checks matching `SCA_SYNC.policy_query` from agents that currently have active vulnerability findings. It writes both `wazuh-enrich-sca-results-YYYY.MM.DD` for history and `wazuh-enrich-sca-results-latest` for the current app/dashboard state.
+
+By default the app reads only `wazuh-enrich-sca-results-latest` so mitigation status stays aligned with the latest collector run. If you later want to also read native Wazuh SCA documents, set `WAZUH_SCA_INDEX_PATTERN: wazuh-states-sca-*,wazuh-enrich-sca-results-latest`.
 
 `WORKAROUND_FEED_FILE` is curated metadata that tells the dashboard where the workaround came from and which playbook owns it:
 

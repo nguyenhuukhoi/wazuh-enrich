@@ -19,7 +19,7 @@ WAZUH_VULN_INDEX_PATTERN: wazuh-states-vulnerabilities-*
 # Optional SCA workaround verification. Keep disabled until you create a small
 # dedicated workaround SCA policy. Do not scan all generic SCA results.
 SCA_WORKAROUND_ENABLED: false
-WAZUH_SCA_INDEX_PATTERN: wazuh-states-sca-*,wazuh-enrich-sca-results-*
+WAZUH_SCA_INDEX_PATTERN: wazuh-enrich-sca-results-latest
 SCA_WORKAROUND_QUERY: workaround CVE
 SCA_SYNC:
   enabled: false

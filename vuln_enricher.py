@@ -65,6 +65,10 @@ def latest_index(prefix: str) -> str:
     return f"{prefix}-latest"
 
 
+def sca_latest_index(settings: Settings) -> str:
+    return latest_index(str(settings.sca_sync.get("output_index_prefix", "wazuh-enrich-sca-results")))
+
+
 def latest_indices(settings: Settings) -> dict[str, str]:
     return {
         "enriched_index": latest_index(settings.enriched_index_prefix),
@@ -334,9 +338,12 @@ def sync_sca_results(settings: Settings, client: WazuhIndexerClient) -> dict[str
         policy_query=str(settings.sca_sync.get("policy_query", "workaround")),
     )
     index = client.index_name(str(settings.sca_sync.get("output_index_prefix", "wazuh-enrich-sca-results")))
+    latest = sca_latest_index(settings)
     client.ensure_templates()
     client.bulk_index(index, docs, ["agent.id", "policy.id", "check.id"])
-    result = {"enabled": True, "agents": len(agents), "docs": len(docs), "index": index}
+    client.delete_by_query(latest, {"match_all": {}})
+    client.bulk_index(latest, docs, ["agent.id", "policy.id", "check.id"])
+    result = {"enabled": True, "agents": len(agents), "docs": len(docs), "index": index, "latest_index": latest}
     LOG.info("sca_sync_done %s", json.dumps(result, sort_keys=True))
     return result
 
