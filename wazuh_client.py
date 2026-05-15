@@ -314,38 +314,8 @@ class WazuhIndexerClient:
     def sca_workaround_results(self) -> dict[tuple[str, str], dict[str, Any]]:
         if not getattr(self.settings, "sca_workaround_enabled", False):
             return {}
-        body = {
-            "query": {
-                "simple_query_string": {
-                    "query": getattr(self.settings, "sca_workaround_query", "workaround CVE"),
-                    "fields": [
-                        "check.id",
-                        "check.title",
-                        "check.description",
-                        "check.rationale",
-                        "check.remediation",
-                        "policy.id",
-                        "policy.name",
-                    ],
-                    "default_operator": "and",
-                }
-            },
-            "_source": [
-                "agent.id",
-                "agent.name",
-                "policy.id",
-                "policy.name",
-                "check.id",
-                "check.title",
-                "check.description",
-                "check.rationale",
-                "check.remediation",
-                "check.result",
-                "check.status",
-                "result",
-                "status",
-            ],
-        }
+        query_text = getattr(self.settings, "sca_workaround_query", "workaround CVE")
+        body = self._sca_workaround_query_body(query_text)
         grouped: dict[tuple[str, str], dict[str, Any]] = {}
         for source in self._scroll_sources(self.settings.wazuh_sca_index_pattern, body, ignore_unavailable=True):
             agent_id = str(first_path(source, ["agent.id"], ""))
@@ -410,6 +380,61 @@ class WazuhIndexerClient:
             }
         LOG.info("sca_workaround_results_loaded records=%s index=%s", len(normalized), self.settings.wazuh_sca_index_pattern)
         return normalized
+
+    def _sca_workaround_query_body(self, query_text: str) -> dict[str, Any]:
+        source_fields = [
+            "agent.id",
+            "agent.name",
+            "policy.id",
+            "policy.name",
+            "check.id",
+            "check.title",
+            "check.description",
+            "check.rationale",
+            "check.remediation",
+            "check.result",
+            "check.status",
+            "result",
+            "status",
+        ]
+        if str(query_text).strip().lower() in {"*", "all", "match_all"}:
+            return {"query": {"match_all": {}}, "_source": source_fields}
+        policy_query = {
+            "bool": {
+                "should": [
+                    {"wildcard": {"policy.id": "*workaround*"}},
+                    {"wildcard": {"policy.name": "*workaround*"}},
+                    {"match_phrase": {"check.title": "workaround:"}},
+                    {"match_phrase": {"check.description": "workaround"}},
+                    {"match_phrase": {"check.remediation": "workaround"}},
+                ],
+                "minimum_should_match": 1,
+            }
+        }
+        text_query = {
+            "simple_query_string": {
+                "query": query_text,
+                "fields": [
+                    "check.id",
+                    "check.title",
+                    "check.description",
+                    "check.rationale",
+                    "check.remediation",
+                    "policy.id",
+                    "policy.name",
+                ],
+                "default_operator": "and",
+            }
+        }
+        return {
+            "query": {
+                "bool": {
+                    "should": [policy_query, text_query],
+                    "minimum_should_match": 1,
+                }
+            },
+            "_source": source_fields,
+        }
 
     def iter_index_sources(self, index: str, query: dict[str, Any] | None = None) -> Iterable[dict[str, Any]]:
         body = {"query": query or {"match_all": {}}}
@@ -746,9 +771,9 @@ class WazuhIndexerClient:
 
 
 def _sca_result(value: Any) -> str:
-    text = str(value).strip().lower()
-    if text in {"passed", "pass", "ok", "compliant", "true", "1"}:
+    text = str(value or "").strip().lower().replace(" ", "_")
+    if text in {"passed", "pass", "ok", "compliant", "true", "1", "yes", "done", "succeeded"}:
         return "passed"
-    if text in {"failed", "fail", "not_compliant", "non-compliant", "false", "0"}:
+    if text in {"failed", "fail", "not_compliant", "non-compliant", "false", "0", "no", "error"}:
         return "failed"
     return "unknown"

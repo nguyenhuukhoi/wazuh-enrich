@@ -11,17 +11,17 @@ requirements:
   description: "Run only on Ubuntu agents."
   condition: any
   rules:
-    - 'c:grep -qi "^ID=ubuntu" /etc/os-release && echo ubuntu || echo not_ubuntu -> r:ubuntu'
+    - 'c:sh -c ". /etc/os-release 2>/dev/null && [ \"${ID:-}\" = ubuntu ] && echo ubuntu || echo not_ubuntu" -> r:^ubuntu$'
 
 checks:
   - id: 100001
-    title: "workaround:CVE-2026-31431:algif_aead_blacklist_config"
-    description: "CVE-2026-31431 workaround check: algif_aead must be blacklisted."
+    title: "workaround:CVE-2026-31431:algif_aead_manual_disable_config"
+    description: "CVE-2026-31431 workaround check: algif_aead must be disabled with an install override or blacklist."
     rationale: "The workaround is considered active only when future module loads are blocked."
-    remediation: "Add 'blacklist algif_aead' under /etc/modprobe.d/ after vendor/internal approval."
+    remediation: "Add 'install algif_aead /bin/false' under /etc/modprobe.d/ after vendor/internal approval."
     condition: all
     rules:
-      - 'c:sh -c "grep -R \"^[[:space:]]*blacklist[[:space:]]\\+algif_aead\\b\" /etc/modprobe.d/*.conf >/dev/null 2>&1 && echo blacklisted || echo missing" -> r:blacklisted'
+      - 'c:sh -c "grep -R \"^[[:space:]]*install[[:space:]]\\+algif_aead[[:space:]]\\+/bin/false\\b\" /etc/modprobe.d/*.conf >/dev/null 2>&1 || grep -R \"^[[:space:]]*blacklist[[:space:]]\\+algif_aead\\b\" /etc/modprobe.d/*.conf >/dev/null 2>&1; if [ $? -eq 0 ]; then echo disabled; else echo missing; fi" -> r:^disabled$'
 
   - id: 100002
     title: "workaround:CVE-2026-31431:algif_aead_not_loaded"
