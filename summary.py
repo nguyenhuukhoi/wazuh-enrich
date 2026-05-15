@@ -72,11 +72,28 @@ def _mitigation_status(docs: list[dict[str, Any]]) -> str:
 
 def _workaround_fields(docs: list[dict[str, Any]]) -> dict[str, Any]:
     status = _mitigation_status(docs)
+    first = next((doc for doc in docs if doc.get("workaround_available") or doc.get("workaround_id")), {})
     return {
         "mitigation_status": status,
         "workaround_verified": status == "mitigated",
+        "workaround_available": any(bool(doc.get("workaround_available")) for doc in docs),
+        "workaround_id": first.get("workaround_id", ""),
+        "workaround_title": first.get("workaround_title", ""),
+        "workaround_source": first.get("workaround_source", ""),
+        "workaround_source_url": first.get("workaround_source_url", ""),
+        "workaround_executor": first.get("workaround_executor", ""),
+        "workaround_playbook": first.get("workaround_playbook", ""),
+        "workaround_apply_status": first.get("workaround_apply_status", ""),
+        "workaround_verify_status": first.get("workaround_verify_status", ""),
+        "workaround_verified_at": _max_dt([doc.get("workaround_verified_at") for doc in docs]),
         "workaround_check_passed": sum(int(doc.get("workaround_check_passed", 0)) for doc in docs),
         "workaround_check_failed": sum(int(doc.get("workaround_check_failed", 0)) for doc in docs),
+        "workaround_passed_checks": sorted(
+            {item for doc in docs for item in (doc.get("workaround_passed_checks") or []) if item}
+        )[:20],
+        "workaround_failed_checks": sorted(
+            {item for doc in docs for item in (doc.get("workaround_failed_checks") or []) if item}
+        )[:20],
         "workaround_policy_ids": sorted(
             {item for doc in docs for item in (doc.get("workaround_policy_ids") or []) if item}
         )[:20],

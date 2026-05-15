@@ -113,7 +113,7 @@ Filters:
 - `affected_hosts_count >= 1`
 - query: `patch_decision:patch_scheduled or patch_decision:cleanup_old_kernel or patch_decision:workaround_active`
 
-This means vendor confirms affected and patching should be planned, but it is not classified as immediate critical impact. It also includes `cleanup_old_kernel`, where an old vulnerable Ubuntu kernel package is still installed but is not the running kernel, and `workaround_active`, where Wazuh SCA verified an approved workaround.
+This means vendor confirms affected and patching should be planned, but it is not classified as immediate critical impact. It also includes `cleanup_old_kernel`, where an old vulnerable Ubuntu kernel package is still installed but is not the running kernel, and `workaround_active`, where Ansible verified an approved workaround result.
 
 ### Columns
 
@@ -131,6 +131,9 @@ Columns:
 - `recommended_action`
 - `mitigation_status`
 - `workaround_verified`
+- `workaround_id`
+- `workaround_source`
+- `workaround_verified_at`
 - `workaround_check_passed`
 - `workaround_check_failed`
 - `affected_hosts_count`
@@ -173,6 +176,9 @@ Columns:
 - `recommended_action`
 - `mitigation_status`
 - `workaround_verified`
+- `workaround_id`
+- `workaround_source`
+- `workaround_verified_at`
 - `workaround_check_passed`
 - `workaround_check_failed`
 - `agent_id`

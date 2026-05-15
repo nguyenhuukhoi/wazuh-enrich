@@ -306,8 +306,18 @@ impact_assessment
 recommended_action
 mitigation_status
 workaround_verified
+workaround_id
+workaround_source
+workaround_source_url
+workaround_executor
+workaround_playbook
+workaround_apply_status
+workaround_verify_status
+workaround_verified_at
 workaround_check_passed
 workaround_check_failed
+workaround_passed_checks
+workaround_failed_checks
 workaround_policy_ids
 workaround_check_ids
 workaround_check_titles
@@ -337,7 +347,7 @@ Patch decision is the field to use when deciding whether to patch the system:
 
 ```text
 patch_now       -> vendor confirms affected and the threat/exposure is high
-workaround_active -> host is still vulnerable by package version, but Wazuh SCA verified the workaround
+workaround_active -> host is still vulnerable by package version, but Ansible verified the workaround
 patch_scheduled -> vendor confirms affected and a fixed version exists
 cleanup_old_kernel -> vulnerable old kernel package is installed but is not the running kernel
 monitor         -> affected or possibly affected, but exploitability is low or no fix exists yet
@@ -352,31 +362,125 @@ The decision is intentionally conservative:
 - `vendor_not_found` with high threat becomes `needs_review`, not automatic `patch_now`.
 - Kernel findings become urgent when the vulnerable package matches the running kernel. Old non-running kernel packages are treated as cleanup work, not immediate runtime exploit impact.
 
-## Workaround Verification With Wazuh SCA
+## Workaround Verification With Ansible
 
-This phase does not use `WORKAROUND_FEED_FILE`. The enricher reads Wazuh SCA results from `WAZUH_SCA_INDEX_PATTERN` and parses CVE IDs from SCA check IDs/titles. If all matching SCA checks for `agent_id + CVE` pass, the finding is marked as mitigated:
+Use Ansible as the executor/verifier and let `wazuh-enrich` read the verification result. The app does not SSH to agents and does not need SCA/osquery for this flow.
+
+Config:
 
 ```yaml
+WORKAROUND_FEED_FILE: /var/lib/wazuh-enrich/feeds/cve_workarounds.yaml
+WORKAROUND_RESULT_FILE: /var/lib/wazuh-enrich/feeds/workaround_results.json
 SCA_WORKAROUND_ENABLED: false
-WAZUH_SCA_INDEX_PATTERN: wazuh-states-sca-*
-SCA_WORKAROUND_QUERY: workaround CVE
+WORKAROUND_COLLECTOR:
+  enabled: false
+  output_file: /var/lib/wazuh-enrich/feeds/cve_workarounds.yaml
+  sources:
+    - ubuntu
 ```
 
-Keep `SCA_WORKAROUND_ENABLED` disabled until a small dedicated workaround policy is deployed. When enabled, the app queries only SCA checks matching `SCA_WORKAROUND_QUERY`; it must not scan all generic SCA results.
+`WORKAROUND_FEED_FILE` is curated metadata that tells the dashboard where the workaround came from and which playbook owns it:
 
-Required naming convention:
+```yaml
+workarounds:
+  - cve_id: CVE-2026-31431
+    workaround_id: copy-fail-algif-aead
+    title: Copy Fail algif_aead mitigation
+    source_url: https://ubuntu.com/blog/copy-fail-vulnerability-fixes-available
+    executor: ansible
+    playbook: playbooks/cve_2026_31431_copy_fail.yml
+    notes: Upgrade kmod or install algif_aead /bin/false, then verify module is not loaded.
+```
+
+Optional collector:
+
+```bash
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-workaround-feed --cve CVE-2026-31431
+```
+
+Or collect for CVEs currently impacting the system:
+
+```bash
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-workaround-feed --from-latest-impact
+```
+
+The collector writes workaround candidates only. New rows use `review_status: needs_review`; review the vendor guidance, create or approve the Ansible playbook, then run Ansible verification. The collector does not mark a host mitigated.
+
+`WORKAROUND_RESULT_FILE` is written by your Ansible verification job:
+
+```json
+[
+  {
+    "agent_id": "001",
+    "agent_name": "ubuntu-1",
+    "cve_id": "CVE-2026-31431",
+    "workaround_id": "copy-fail-algif-aead",
+    "source": "ansible",
+    "apply_status": "applied",
+    "verify_status": "passed",
+    "verified_at": "2026-05-15T10:30:00Z",
+    "checks": {
+      "kmod_fixed_or_manual_disable": true,
+      "algif_aead_not_loaded": true
+    },
+    "evidence": {
+      "kmod_version": "31+20240202-2ubuntu7.2",
+      "module_loaded": false,
+      "manual_disable_file": "/etc/modprobe.d/manual-disable-algif_aead.conf"
+    }
+  }
+]
+```
+
+Join key:
 
 ```text
-workaround:CVE-2026-31431:algif_aead_blacklist_config
-workaround:CVE-2026-31431:algif_aead_not_loaded
+agent_id + cve_id
+```
+
+Put `wazuh_agent_id` in your Ansible inventory so the output can include the exact Wazuh agent ID:
+
+```ini
+[ubuntu]
+ubuntu-1 ansible_host=10.0.0.10 wazuh_agent_id=001
+ubuntu-2 ansible_host=10.0.0.11 wazuh_agent_id=002
+```
+
+Copy the examples on the server:
+
+```bash
+sudo mkdir -p /var/lib/wazuh-enrich/feeds
+sudo cp feeds/cve_workarounds.yaml.example /var/lib/wazuh-enrich/feeds/cve_workarounds.yaml
+sudo cp feeds/workaround_results.json.example /var/lib/wazuh-enrich/feeds/workaround_results.json
+```
+
+Use the sample Copy Fail playbook as a starting point:
+
+```bash
+cp ansible/cve_2026_31431_copy_fail.yml.example playbooks/cve_2026_31431_copy_fail.yml
+```
+
+Verify only:
+
+```bash
+ansible-playbook -i inventory.ini playbooks/cve_2026_31431_copy_fail.yml \
+  -e workaround_result_output=/var/lib/wazuh-enrich/feeds/workaround_results.json
+```
+
+Apply manual workaround and verify:
+
+```bash
+ansible-playbook -i inventory.ini playbooks/cve_2026_31431_copy_fail.yml \
+  -e apply_workaround=true \
+  -e workaround_result_output=/var/lib/wazuh-enrich/feeds/workaround_results.json
 ```
 
 Result logic:
 
 ```text
-matching SCA checks pass             -> mitigation_status: mitigated
-one or more matching SCA checks fail -> mitigation_status: not_mitigated
-no matching SCA result               -> mitigation_status: unknown
+verify_status passed and all checks true -> mitigation_status: mitigated
+verify_status failed or any check false  -> mitigation_status: not_mitigated
+missing result for agent_id + CVE        -> mitigation_status: unknown
 ```
 
 If a finding was `patch_now` but `mitigation_status` becomes `mitigated`, the app changes it to:
@@ -387,32 +491,6 @@ patch_decision: workaround_active
 
 This means the package is still vulnerable and should be patched later, but the verified workaround reduces immediate exploitability and removes it from the default `Critical Real Impact` alert scope.
 
-Example SCA policy:
-
-```bash
-sudo cp sca/ubuntu-workaround-verification.yml.example \
-  /var/ossec/etc/shared/ubuntu-workaround-verification.yml
-```
-
-Enable the policy on the agent or agent group `ossec.conf`:
-
-```xml
-<sca>
-  <enabled>yes</enabled>
-  <scan_on_start>yes</scan_on_start>
-  <interval>15m</interval>
-  <policies>
-    <policy>/var/ossec/etc/shared/ubuntu-workaround-verification.yml</policy>
-  </policies>
-</sca>
-```
-
-Restart the agent and wait for SCA results:
-
-```bash
-sudo systemctl restart wazuh-agent
-```
-
 Then run:
 
 ```bash
@@ -420,12 +498,6 @@ Then run:
   --config /etc/wazuh-enrich/config.yaml \
   --log-format text \
   enrich-all
-```
-
-After the policy exists and SCA results are visible in Wazuh, enable it:
-
-```yaml
-SCA_WORKAROUND_ENABLED: true
 ```
 
 ## First Run
@@ -553,6 +625,7 @@ Reload sends `SIGHUP` to the daemon. The process stays running, saves current st
 ```bash
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-feeds
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-poc-feed
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-workaround-feed --from-latest-impact
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-poc
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-agent --agent-id 001

@@ -282,8 +282,18 @@ impact_assessment
 recommended_action
 mitigation_status
 workaround_verified
+workaround_id
+workaround_source
+workaround_source_url
+workaround_executor
+workaround_playbook
+workaround_apply_status
+workaround_verify_status
+workaround_verified_at
 workaround_check_passed
 workaround_check_failed
+workaround_passed_checks
+workaround_failed_checks
 workaround_policy_ids
 workaround_check_ids
 workaround_check_titles
@@ -311,7 +321,7 @@ patch_decision: cleanup_old_kernel
 
 ```text
 patch_now       -> vendor xác nhận affected và threat/exposure cao
-workaround_active -> package vẫn vulnerable, nhưng Wazuh SCA đã verify workaround trên host
+workaround_active -> package vẫn vulnerable, nhưng Ansible đã verify workaround trên host
 patch_scheduled -> vendor xác nhận affected và đã có fixed version
 cleanup_old_kernel -> kernel package cũ còn installed nhưng không phải kernel đang chạy
 monitor         -> affected hoặc có thể affected, nhưng exploitability thấp hoặc chưa có fix
@@ -326,31 +336,125 @@ Logic này cố ý thận trọng:
 - `vendor_not_found` nhưng threat cao sẽ thành `needs_review`, không tự động coi là `patch_now`.
 - Kernel finding chỉ thật sự gấp nếu vulnerable package khớp với running kernel. Kernel cũ không còn running sẽ được xem là việc cleanup, không phải runtime critical impact.
 
-## Verify Workaround Bằng Wazuh SCA
+## Verify Workaround Bằng Ansible
 
-Phase này không dùng `WORKAROUND_FEED_FILE`. Enricher đọc kết quả Wazuh SCA từ `WAZUH_SCA_INDEX_PATTERN` và parse CVE ID trong SCA check ID/title. Nếu tất cả SCA check khớp với `agent_id + CVE` đều pass, finding được xem là đã mitigated:
+Dùng Ansible để apply/verify workaround, còn `wazuh-enrich` chỉ đọc kết quả verification. App không SSH vào agent và không cần SCA/osquery cho flow này.
+
+Config:
 
 ```yaml
+WORKAROUND_FEED_FILE: /var/lib/wazuh-enrich/feeds/cve_workarounds.yaml
+WORKAROUND_RESULT_FILE: /var/lib/wazuh-enrich/feeds/workaround_results.json
 SCA_WORKAROUND_ENABLED: false
-WAZUH_SCA_INDEX_PATTERN: wazuh-states-sca-*
-SCA_WORKAROUND_QUERY: workaround CVE
+WORKAROUND_COLLECTOR:
+  enabled: false
+  output_file: /var/lib/wazuh-enrich/feeds/cve_workarounds.yaml
+  sources:
+    - ubuntu
 ```
 
-Giữ `SCA_WORKAROUND_ENABLED` là `false` cho tới khi bạn deploy policy workaround riêng, nhỏ và có naming convention rõ. Khi bật, app chỉ query SCA check khớp `SCA_WORKAROUND_QUERY`; không được scan toàn bộ generic SCA result.
+`WORKAROUND_FEED_FILE` là metadata curated để dashboard biết workaround lấy từ đâu và playbook nào xử lý:
 
-Quy ước đặt tên check:
+```yaml
+workarounds:
+  - cve_id: CVE-2026-31431
+    workaround_id: copy-fail-algif-aead
+    title: Copy Fail algif_aead mitigation
+    source_url: https://ubuntu.com/blog/copy-fail-vulnerability-fixes-available
+    executor: ansible
+    playbook: playbooks/cve_2026_31431_copy_fail.yml
+    notes: Upgrade kmod hoặc install algif_aead /bin/false, rồi verify module không loaded.
+```
+
+Collector tự tìm workaround candidate:
+
+```bash
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-workaround-feed --cve CVE-2026-31431
+```
+
+Hoặc lấy CVE đang impact hệ thống từ `wazuh-vuln-cve-summary-latest`:
+
+```bash
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-workaround-feed --from-latest-impact
+```
+
+Collector chỉ ghi candidate vào feed. Record mới sẽ có `review_status: needs_review`; bạn vẫn cần đọc vendor guidance, tạo/approve playbook Ansible, rồi chạy Ansible verify. Collector không tự đánh dấu host đã mitigate.
+
+`WORKAROUND_RESULT_FILE` do Ansible verification job ghi ra:
+
+```json
+[
+  {
+    "agent_id": "001",
+    "agent_name": "ubuntu-1",
+    "cve_id": "CVE-2026-31431",
+    "workaround_id": "copy-fail-algif-aead",
+    "source": "ansible",
+    "apply_status": "applied",
+    "verify_status": "passed",
+    "verified_at": "2026-05-15T10:30:00Z",
+    "checks": {
+      "kmod_fixed_or_manual_disable": true,
+      "algif_aead_not_loaded": true
+    },
+    "evidence": {
+      "kmod_version": "31+20240202-2ubuntu7.2",
+      "module_loaded": false,
+      "manual_disable_file": "/etc/modprobe.d/manual-disable-algif_aead.conf"
+    }
+  }
+]
+```
+
+Join key:
 
 ```text
-workaround:CVE-2026-31431:algif_aead_blacklist_config
-workaround:CVE-2026-31431:algif_aead_not_loaded
+agent_id + cve_id
+```
+
+Nên khai báo `wazuh_agent_id` trong Ansible inventory để output join chắc:
+
+```ini
+[ubuntu]
+ubuntu-1 ansible_host=10.0.0.10 wazuh_agent_id=001
+ubuntu-2 ansible_host=10.0.0.11 wazuh_agent_id=002
+```
+
+Copy file mẫu trên server:
+
+```bash
+sudo mkdir -p /var/lib/wazuh-enrich/feeds
+sudo cp feeds/cve_workarounds.yaml.example /var/lib/wazuh-enrich/feeds/cve_workarounds.yaml
+sudo cp feeds/workaround_results.json.example /var/lib/wazuh-enrich/feeds/workaround_results.json
+```
+
+Dùng playbook mẫu Copy Fail làm điểm bắt đầu:
+
+```bash
+cp ansible/cve_2026_31431_copy_fail.yml.example playbooks/cve_2026_31431_copy_fail.yml
+```
+
+Chỉ verify:
+
+```bash
+ansible-playbook -i inventory.ini playbooks/cve_2026_31431_copy_fail.yml \
+  -e workaround_result_output=/var/lib/wazuh-enrich/feeds/workaround_results.json
+```
+
+Apply manual workaround rồi verify:
+
+```bash
+ansible-playbook -i inventory.ini playbooks/cve_2026_31431_copy_fail.yml \
+  -e apply_workaround=true \
+  -e workaround_result_output=/var/lib/wazuh-enrich/feeds/workaround_results.json
 ```
 
 Logic:
 
 ```text
-SCA checks khớp đều pass       -> mitigation_status: mitigated
-có ít nhất một check fail      -> mitigation_status: not_mitigated
-không có SCA result khớp       -> mitigation_status: unknown
+verify_status passed và mọi checks true -> mitigation_status: mitigated
+verify_status failed hoặc có check false -> mitigation_status: not_mitigated
+không có result theo agent_id + CVE      -> mitigation_status: unknown
 ```
 
 Nếu finding đang là `patch_now` nhưng `mitigation_status` thành `mitigated`, app đổi thành:
@@ -361,32 +465,6 @@ patch_decision: workaround_active
 
 Nghĩa là package vẫn vulnerable và vẫn cần patch sau, nhưng workaround đã được verify nên giảm rủi ro khai thác ngay lúc này và không còn nằm trong alert mặc định `Critical Real Impact`.
 
-Ví dụ policy:
-
-```bash
-sudo cp sca/ubuntu-workaround-verification.yml.example \
-  /var/ossec/etc/shared/ubuntu-workaround-verification.yml
-```
-
-Bật policy trong `ossec.conf` của agent hoặc agent group:
-
-```xml
-<sca>
-  <enabled>yes</enabled>
-  <scan_on_start>yes</scan_on_start>
-  <interval>15m</interval>
-  <policies>
-    <policy>/var/ossec/etc/shared/ubuntu-workaround-verification.yml</policy>
-  </policies>
-</sca>
-```
-
-Restart agent và chờ SCA result:
-
-```bash
-sudo systemctl restart wazuh-agent
-```
-
 Sau đó enrich lại:
 
 ```bash
@@ -394,12 +472,6 @@ Sau đó enrich lại:
   --config /etc/wazuh-enrich/config.yaml \
   --log-format text \
   enrich-all
-```
-
-Sau khi policy đã có và Wazuh đã có SCA result, mới bật:
-
-```yaml
-SCA_WORKAROUND_ENABLED: true
 ```
 
 ## Chạy Lần Đầu
@@ -519,6 +591,7 @@ Reload gửi `SIGHUP` tới daemon. Process vẫn chạy, save state hiện tạ
 ```bash
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-feeds
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-poc-feed
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-workaround-feed --from-latest-impact
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-poc
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-agent --agent-id 001

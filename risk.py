@@ -90,6 +90,21 @@ def default_mitigation() -> dict[str, Any]:
         "workaround_policy_ids": [],
         "workaround_check_ids": [],
         "workaround_check_titles": [],
+        "workaround_available": False,
+        "workaround_id": "",
+        "workaround_title": "",
+        "workaround_source": "",
+        "workaround_source_url": "",
+        "workaround_executor": "",
+        "workaround_playbook": "",
+        "workaround_notes": "",
+        "workaround_apply_status": "",
+        "workaround_verify_status": "",
+        "workaround_verified_at": "",
+        "workaround_passed_checks": [],
+        "workaround_failed_checks": [],
+        "workaround_checks": {},
+        "workaround_evidence": {},
     }
 
 
@@ -469,7 +484,9 @@ def normalize_finding(
         decision,
     )
     mitigation = dict(default_mitigation())
-    mitigation.update((mitigation_records or {}).get((agent_id, cve_id), {}))
+    if mitigation_records:
+        mitigation.update(mitigation_records.get(("*", cve_id), {}))
+        mitigation.update(mitigation_records.get((agent_id, cve_id), {}))
     if mitigation.get("mitigation_status") == "mitigated" and decision == "patch_now":
         decision = "workaround_active"
         assessment = "workaround_verified_monitor_patch"

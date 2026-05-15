@@ -1,0 +1,100 @@
+---
+- name: Apply and verify Copy Fail workaround for CVE-2026-31431
+  hosts: ubuntu
+  become: true
+  gather_facts: true
+  vars:
+    cve_id: CVE-2026-31431
+    workaround_id: copy-fail-algif-aead
+    workaround_result_output: /var/lib/wazuh-enrich/feeds/workaround_results.json
+    apply_workaround: false
+
+  tasks:
+    - name: Optionally install manual modprobe disable rule
+      ansible.builtin.copy:
+        dest: /etc/modprobe.d/manual-disable-algif_aead.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          install algif_aead /bin/false
+      when: apply_workaround | bool
+
+    - name: Optionally unload algif_aead without reboot
+      ansible.builtin.command: modprobe -r algif_aead
+      register: unload_algif_aead
+      changed_when: unload_algif_aead.rc == 0
+      failed_when: false
+      when: apply_workaround | bool
+
+    - name: Read kmod version
+      ansible.builtin.command: dpkg-query -W -f=${Version} kmod
+      register: kmod_version
+      changed_when: false
+      failed_when: false
+
+    - name: Verify kmod mitigation or manual disable config
+      ansible.builtin.shell: |
+        set -eu
+        . /etc/os-release
+        version="{{ kmod_version.stdout | default('') }}"
+        mitigated=false
+        case "$VERSION_ID" in
+          14.04) dpkg --compare-versions "$version" ge "15-0ubuntu7+esm1" && mitigated=true ;;
+          16.04) dpkg --compare-versions "$version" ge "22-1ubuntu5.2+esm1" && mitigated=true ;;
+          18.04) dpkg --compare-versions "$version" ge "24-1ubuntu3.5+esm1" && mitigated=true ;;
+          20.04) dpkg --compare-versions "$version" ge "27-1ubuntu2.1+esm1" && mitigated=true ;;
+          22.04) dpkg --compare-versions "$version" ge "29-1ubuntu1.1" && mitigated=true ;;
+          24.04) dpkg --compare-versions "$version" ge "31+20240202-2ubuntu7.2" && mitigated=true ;;
+          25.10) dpkg --compare-versions "$version" ge "34.2-2ubuntu1.1" && mitigated=true ;;
+          26.04) mitigated=true ;;
+        esac
+        if grep -R "^[[:space:]]*install[[:space:]]\+algif_aead[[:space:]]\+/bin/false\b" /etc/modprobe.d/*.conf >/dev/null 2>&1; then
+          mitigated=true
+        fi
+        "$mitigated" && echo true || echo false
+      args:
+        executable: /bin/bash
+      register: kmod_fixed_or_manual_disable
+      changed_when: false
+
+    - name: Verify algif_aead is not loaded
+      ansible.builtin.shell: |
+        if grep -qE '^algif_aead ' /proc/modules; then
+          echo false
+        else
+          echo true
+        fi
+      args:
+        executable: /bin/bash
+      register: algif_aead_not_loaded
+      changed_when: false
+
+    - name: Build wazuh-enrich workaround result for this host
+      ansible.builtin.set_fact:
+        workaround_result:
+          agent_id: "{{ wazuh_agent_id | default('') }}"
+          agent_name: "{{ inventory_hostname }}"
+          cve_id: "{{ cve_id }}"
+          workaround_id: "{{ workaround_id }}"
+          source: ansible
+          apply_status: "{{ 'applied' if apply_workaround | bool else 'verify_only' }}"
+          verify_status: "{{ 'passed' if (kmod_fixed_or_manual_disable.stdout | trim | bool and algif_aead_not_loaded.stdout | trim | bool) else 'failed' }}"
+          mitigation_status: "{{ 'mitigated' if (kmod_fixed_or_manual_disable.stdout | trim | bool and algif_aead_not_loaded.stdout | trim | bool) else 'not_mitigated' }}"
+          verified_at: "{{ ansible_date_time.iso8601 }}"
+          checks:
+            kmod_fixed_or_manual_disable: "{{ kmod_fixed_or_manual_disable.stdout | trim | bool }}"
+            algif_aead_not_loaded: "{{ algif_aead_not_loaded.stdout | trim | bool }}"
+          evidence:
+            kmod_version: "{{ kmod_version.stdout | default('') }}"
+            module_loaded: "{{ not (algif_aead_not_loaded.stdout | trim | bool) }}"
+            manual_disable_file: /etc/modprobe.d/manual-disable-algif_aead.conf
+
+    - name: Write combined workaround result file for wazuh-enrich
+      ansible.builtin.copy:
+        dest: "{{ workaround_result_output }}"
+        mode: "0644"
+        content: "{{ ansible_play_hosts | map('extract', hostvars, 'workaround_result') | list | to_nice_json }}"
+      delegate_to: localhost
+      run_once: true
+      become: false

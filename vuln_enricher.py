@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import hashlib
 import json
 import logging
 import signal
@@ -16,6 +17,8 @@ from risk import finding_key, normalize_finding
 from state import StateStore
 from summary import build_cve_summary, build_host_cve_impact_summary, build_host_summary, overview_metrics
 from tools.build_poc_feed import build_poc_feed
+from workaround import build_mitigation_records, load_workaround_feed, load_workaround_results
+from workaround_collector import build_workaround_feed, normalize_cve
 from wazuh_client import WazuhIndexerClient
 
 
@@ -168,6 +171,16 @@ def load_local_or_sync_feeds(
     return kev, epss, poc, ubuntu, ubuntu_osv
 
 
+def load_mitigation_records(settings: Settings, client: WazuhIndexerClient) -> dict[tuple[str, str], dict[str, Any]]:
+    feed = load_workaround_feed(settings.workaround_feed_file)
+    ansible_results = load_workaround_results(settings.workaround_result_file)
+    records = build_mitigation_records(feed, ansible_results)
+    sca_records = client.sca_workaround_results()
+    if sca_records:
+        records.update(sca_records)
+    return records
+
+
 def build_feed_sync(settings: Settings) -> FeedSync:
     return FeedSync(
         cache_dir=settings.cache_dir,
@@ -218,6 +231,86 @@ def build_poc_metadata(settings: Settings) -> int:
     return count
 
 
+def read_cve_file(path: str) -> list[str]:
+    cves: list[str] = []
+    for line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+        value = line.strip()
+        if not value or value.startswith("#"):
+            continue
+        cves.append(value.split(",", 1)[0].strip())
+    return cves
+
+
+def impacted_cves_for_workaround_collection(
+    settings: Settings,
+    client: WazuhIndexerClient,
+    max_cves: int,
+) -> list[str]:
+    cfg = settings.workaround_collector
+    decisions = cfg.get("include_patch_decisions") or ["patch_now", "needs_review", "patch_scheduled"]
+    query = {
+        "bool": {
+            "filter": [
+                {"range": {"affected_hosts_count": {"gte": 1}}},
+                {"terms": {"patch_decision": decisions}},
+            ]
+        }
+    }
+    cves: list[str] = []
+    for doc in client.iter_index_sources(latest_indices(settings)["cve_summary_index"], query):
+        cve_id = str(doc.get("cve_id", "")).strip()
+        if not cve_id:
+            continue
+        try:
+            cves.append(normalize_cve(cve_id))
+        except ValueError:
+            continue
+        if len(cves) >= max_cves:
+            break
+    return sorted(set(cves))
+
+
+def build_workaround_metadata(
+    settings: Settings,
+    client: WazuhIndexerClient | None = None,
+    cves: list[str] | None = None,
+    output: Path | None = None,
+) -> int:
+    cfg = settings.workaround_collector
+    selected_cves = list(cves or [])
+    if not selected_cves and client is not None:
+        selected_cves = impacted_cves_for_workaround_collection(
+            settings,
+            client,
+            int(cfg.get("max_cves_per_run", 100)),
+        )
+    if not selected_cves:
+        LOG.info("workaround_collect skipped=true reason=no_cves")
+        return 0
+
+    output_file = output or Path(str(cfg.get("output_file") or settings.workaround_feed_file or "feeds/cve_workarounds.yaml"))
+    count = build_workaround_feed(
+        selected_cves,
+        output_file,
+        existing_feed=output_file,
+        sources=cfg.get("sources") or ["ubuntu"],
+        timeout=int(cfg.get("timeout_seconds", settings.request_timeout_seconds)),
+        fetch_linked_pages=bool(cfg.get("fetch_linked_pages", True)),
+    )
+    LOG.info("workaround_collect_done output=%s cves=%s records=%s", output_file, len(set(selected_cves)), count)
+    return count
+
+
+def file_sha256(path: Path | None) -> str | None:
+    if not path or not path.exists():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def enrich(
     settings: Settings,
     client: WazuhIndexerClient,
@@ -234,7 +327,7 @@ def enrich(
     malformed = 0
     latest_detected_at: str | None = None
     agent_metadata = client.agent_metadata()
-    mitigation_records = client.sca_workaround_results()
+    mitigation_records = load_mitigation_records(settings, client)
 
     for source in client.iter_vulnerability_findings(agent_id=agent_id, since=since):
         try:
@@ -348,7 +441,7 @@ def enrich_agent_incremental(
     old_docs = list(client.iter_index_sources(latest["enriched_index"], {"term": {"agent_id": agent_id}}))
     old_cves = {str(doc.get("cve_id", "")) for doc in old_docs if doc.get("cve_id")}
     agent_metadata = client.agent_metadata()
-    mitigation_records = client.sca_workaround_results()
+    mitigation_records = load_mitigation_records(settings, client)
     new_docs: list[dict[str, Any]] = []
     malformed = 0
     for source in client.iter_vulnerability_findings(agent_id=agent_id):
@@ -506,7 +599,7 @@ def detect_new_agents(
     baseline_dir = settings.cache_dir / "baselines"
     baseline_dir.mkdir(parents=True, exist_ok=True)
     agent_metadata = client.agent_metadata()
-    mitigation_records = client.sca_workaround_results()
+    mitigation_records = load_mitigation_records(settings, client)
 
     for agent in client.list_agents_with_vulnerabilities():
         agent_id = agent["agent_id"]
@@ -671,6 +764,22 @@ def daemon(config_path: str, settings: Settings, dry_run: bool = False, dry_run_
                 after = feed_sync.fingerprints()
                 feeds_changed = feeds_changed or before.get("poc") != after.get("poc")
                 last_run["poc_build_seconds"] = now
+            if (
+                settings.workaround_collector.get("enabled")
+                and now - last_run["workaround_collector_seconds"] >= schedule["workaround_collector_seconds"]
+            ):
+                output = Path(
+                    str(
+                        settings.workaround_collector.get("output_file")
+                        or settings.workaround_feed_file
+                        or "feeds/cve_workarounds.yaml"
+                    )
+                )
+                before_workaround = file_sha256(output)
+                build_workaround_metadata(settings, client, output=output)
+                after_workaround = file_sha256(output)
+                feeds_changed = feeds_changed or before_workaround != after_workaround
+                last_run["workaround_collector_seconds"] = now
             if settings.ubuntu_oval.get("enabled") and now - last_run["ubuntu_oval_sync_seconds"] >= schedule["ubuntu_oval_sync_seconds"]:
                 before = feed_sync.fingerprints()
                 feed_sync.sync_ubuntu_oval()
@@ -734,6 +843,7 @@ def build_daemon_schedule(settings: Settings) -> dict[str, int]:
         "ubuntu_osv_sync_seconds": settings.schedule.get("ubuntu_osv_sync_seconds", 86400),
         "inventory_watch_seconds": settings.schedule.get("inventory_watch_seconds", 60),
         "poc_build_seconds": int(settings.poc_build.get("interval_seconds", 86400)),
+        "workaround_collector_seconds": int(settings.workaround_collector.get("interval_seconds", 86400)),
         "detect_new_agents_seconds": settings.schedule.get("detect_new_agents_seconds", 300),
     }
 
@@ -766,6 +876,15 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("sync-feeds")
     sub.add_parser("sync-poc")
     sub.add_parser("build-poc-feed")
+    workaround_parser = sub.add_parser("build-workaround-feed")
+    workaround_parser.add_argument("--cve", action="append", default=[], help="CVE ID to collect. Can be repeated.")
+    workaround_parser.add_argument("--cve-file", help="Text file with one CVE per line.")
+    workaround_parser.add_argument(
+        "--from-latest-impact",
+        action="store_true",
+        help="Collect CVEs from wazuh-vuln-cve-summary-latest using WORKAROUND_COLLECTOR filters.",
+    )
+    workaround_parser.add_argument("--output", help="Output YAML path. Defaults to WORKAROUND_COLLECTOR.output_file.")
     sub.add_parser("enrich-all")
     agent_parser = sub.add_parser("enrich-agent")
     agent_parser.add_argument("--agent-id", required=True)
@@ -793,6 +912,16 @@ def main(argv: list[str] | None = None) -> int:
             sync_poc(settings)
         elif args.command == "build-poc-feed":
             build_poc_metadata(settings)
+        elif args.command == "build-workaround-feed":
+            cves = list(args.cve or [])
+            if args.cve_file:
+                cves.extend(read_cve_file(args.cve_file))
+            build_workaround_metadata(
+                settings,
+                client if args.from_latest_impact or not cves else None,
+                cves=cves,
+                output=Path(args.output) if args.output else None,
+            )
         elif args.command == "enrich-all":
             enrich(
                 settings,

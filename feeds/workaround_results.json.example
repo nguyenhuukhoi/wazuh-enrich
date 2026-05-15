@@ -1,0 +1,22 @@
+[
+  {
+    "agent_id": "001",
+    "agent_name": "ubuntu-1",
+    "cve_id": "CVE-2026-31431",
+    "workaround_id": "copy-fail-algif-aead",
+    "source": "ansible",
+    "apply_status": "applied",
+    "verify_status": "passed",
+    "mitigation_status": "mitigated",
+    "verified_at": "2026-05-15T10:30:00Z",
+    "checks": {
+      "kmod_fixed_or_manual_disable": true,
+      "algif_aead_not_loaded": true
+    },
+    "evidence": {
+      "kmod_version": "31+20240202-2ubuntu7.2",
+      "module_loaded": false,
+      "manual_disable_file": "/etc/modprobe.d/manual-disable-algif_aead.conf"
+    }
+  }
+]

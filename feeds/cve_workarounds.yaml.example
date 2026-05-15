@@ -1,0 +1,8 @@
+workarounds:
+  - cve_id: CVE-2026-31431
+    workaround_id: copy-fail-algif-aead
+    title: Copy Fail algif_aead mitigation
+    source_url: https://ubuntu.com/blog/copy-fail-vulnerability-fixes-available
+    executor: ansible
+    playbook: playbooks/cve_2026_31431_copy_fail.yml
+    notes: Upgrade kmod or install algif_aead /bin/false, then verify algif_aead is not loaded.

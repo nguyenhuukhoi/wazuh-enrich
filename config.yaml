@@ -42,6 +42,27 @@ CISA_KEV_FILE: ${CISA_KEV_FILE}
 EPSS_URL: https://epss.empiricalsecurity.com/epss_scores-current.csv.gz
 # Optional local PoC feed. Supports CSV or JSON and is loaded offline/batch.
 POC_FEED_FILE: ${POC_FEED_FILE}
+# Optional curated workaround metadata and Ansible verification result files.
+# Ansible should apply/verify workarounds and write WORKAROUND_RESULT_FILE.
+WORKAROUND_FEED_FILE: /var/lib/wazuh-enrich/feeds/cve_workarounds.yaml
+WORKAROUND_RESULT_FILE: /var/lib/wazuh-enrich/feeds/workaround_results.json
+
+# Optional workaround collector. It searches vendor pages for workaround
+# candidates and writes WORKAROUND_FEED_FILE. Keep review_status=needs_review
+# until you review the vendor guidance and create/approve an Ansible playbook.
+WORKAROUND_COLLECTOR:
+  enabled: false
+  interval_seconds: 86400
+  output_file: /var/lib/wazuh-enrich/feeds/cve_workarounds.yaml
+  sources:
+    - ubuntu
+  include_patch_decisions:
+    - patch_now
+    - needs_review
+    - patch_scheduled
+  max_cves_per_run: 100
+  timeout_seconds: 30
+  fetch_linked_pages: true
 
 # Optional automatic PoC feed builder. It reads trusted metadata sources and
 # writes POC_FEED_FILE/output_file. Prefer local mirrors/checkouts in production.
