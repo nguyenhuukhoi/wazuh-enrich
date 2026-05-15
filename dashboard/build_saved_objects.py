@@ -19,6 +19,7 @@ NEEDS_REVIEW_QUERY = (
     "and (kev:true or public_poc:true or epss_score >= 0.7))"
 )
 PATCH_SCHEDULED_QUERY = "patch_decision:patch_scheduled or patch_decision:cleanup_old_kernel or patch_decision:workaround_active"
+MITIGATED_HOSTS_QUERY = "mitigation_status:mitigated or patch_decision:workaround_active"
 
 
 def dumps(value: Any) -> str:
@@ -350,6 +351,7 @@ def dashboard_object() -> dict[str, Any]:
     add("search-needs-review-hosts", "search", 0, 50, 48, 14)
     add("search-patch-scheduled", "search", 0, 64, 48, 14)
     add("search-patch-scheduled-hosts", "search", 0, 78, 48, 14)
+    add("search-mitigated-hosts", "search", 0, 92, 48, 14)
 
     references = []
     panel_ids = [
@@ -360,6 +362,7 @@ def dashboard_object() -> dict[str, Any]:
         ("search-needs-review-hosts", "search"),
         ("search-patch-scheduled", "search"),
         ("search-patch-scheduled-hosts", "search"),
+        ("search-mitigated-hosts", "search"),
     ]
     for index, (panel_id, panel_type) in enumerate(panel_ids, start=1):
         references.append({"name": f"panel_{index}", "type": panel_type, "id": panel_id})
@@ -383,14 +386,23 @@ def dashboard_object() -> dict[str, Any]:
 def build_objects() -> list[dict[str, Any]]:
     poc_columns = [
         "cve_id",
+        "cvss_score",
         "patch_decision",
+        "affected_packages",
+        "vendor_fixed_version",
+        "affected_hosts_count",
+        "vendor_advisory_url",
         "impact_assessment",
         "verification_status",
         "exploitability_status",
+        "priority",
+        "epss_score",
+        "exposure_status",
         "kev",
         "public_poc",
         "fix_available",
-        "vendor_fixed_version",
+        "vendor_severity",
+        "vendor_status",
         "recommended_action",
         "mitigation_status",
         "workaround_verified",
@@ -399,29 +411,34 @@ def build_objects() -> list[dict[str, Any]]:
         "workaround_verified_at",
         "workaround_check_passed",
         "workaround_check_failed",
-        "affected_hosts_count",
-        "affected_packages",
-        "priority",
-        "epss_score",
-        "cvss_score",
-        "exposure_status",
-        "vendor_advisory_url",
-        "vendor_severity",
-        "vendor_status",
         "poc_count",
         "poc_references",
         "reason",
     ]
     poc_host_columns = [
         "cve_id",
+        "cvss_score",
+        "agent_id",
+        "agent_name",
+        "agent_ip",
+        "affected_packages",
+        "affected_package_versions",
+        "vendor_advisory_url",
+        "vendor_fixed_version",
         "patch_decision",
         "impact_assessment",
         "verification_status",
         "exploitability_status",
+        "priority",
+        "epss_score",
+        "os_name",
+        "os_version",
+        "exposure_status",
         "kev",
         "public_poc",
         "fix_available",
-        "vendor_fixed_version",
+        "vendor_severity",
+        "vendor_status",
         "recommended_action",
         "mitigation_status",
         "workaround_verified",
@@ -430,20 +447,6 @@ def build_objects() -> list[dict[str, Any]]:
         "workaround_verified_at",
         "workaround_check_passed",
         "workaround_check_failed",
-        "agent_id",
-        "agent_name",
-        "agent_ip",
-        "affected_packages",
-        "affected_package_versions",
-        "priority",
-        "epss_score",
-        "cvss_score",
-        "os_name",
-        "os_version",
-        "exposure_status",
-        "vendor_advisory_url",
-        "vendor_severity",
-        "vendor_status",
         "finding_count",
         "last_detected_at",
         "poc_count",
@@ -504,6 +507,14 @@ def build_objects() -> list[dict[str, Any]]:
             poc_host_columns,
             "risk_score",
             query=PATCH_SCHEDULED_QUERY,
+        ),
+        saved_search(
+            "search-mitigated-hosts",
+            "Hosts - Mitigated / Workaround Active",
+            HOST_CVE_IMPACT,
+            poc_host_columns,
+            "updated_at",
+            query=MITIGATED_HOSTS_QUERY,
         ),
         dashboard_object(),
     ]

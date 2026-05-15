@@ -826,6 +826,7 @@ The imported dashboard intentionally contains only the operational panels:
 - Critical Real Impact CVEs and hosts.
 - Needs Review CVEs and hosts.
 - Patch Scheduled CVEs and hosts.
+- Mitigated / Workaround Active hosts.
 
 Dashboard import is optional and separate from enrichment:
 
@@ -870,6 +871,10 @@ or vendor confirmation is incomplete while KEV/public PoC/EPSS-high is present
 Patch Scheduled:
 patch_decision:patch_scheduled
 or patch_decision:cleanup_old_kernel
+or patch_decision:workaround_active
+
+Mitigated Hosts:
+mitigation_status:mitigated
 or patch_decision:workaround_active
 ```
 

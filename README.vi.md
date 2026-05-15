@@ -809,6 +809,9 @@ Dashboard hiện có:
 - Critical Real Impact CVEs và host.
 - Needs Review CVEs và host.
 - Patch Scheduled CVEs và host.
+- Mitigated / Workaround Active host.
+
+Host mitigated là host vẫn còn CVE trong Wazuh vulnerability data, nhưng workaround đã được verify trên đúng host đó. Dùng panel này để audit host đã xử lý tạm thời và theo dõi patch cleanup sau.
 
 ## Kiểm Tra Nhanh
 

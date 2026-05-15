@@ -19,7 +19,7 @@ Import:
 dashboard/wazuh-vuln-enrichment.ndjson
 ```
 
-The import creates 11 saved objects:
+The import creates 12 saved objects:
 
 - Data view: `wazuh-vuln-cve-summary-latest`
 - Data view: `wazuh-vuln-enriched-latest` with time field `enriched_at`
@@ -31,6 +31,7 @@ The import creates 11 saved objects:
 - Search: `Hosts - Needs Review`
 - Search: `Patch Scheduled CVEs`
 - Search: `Hosts - Patch Scheduled`
+- Search: `Hosts - Mitigated / Workaround Active`
 - Dashboard: `Wazuh Vulnerability Enrichment Overview`
 
 Rebuild the NDJSON after editing definitions:
@@ -115,6 +116,16 @@ Filters:
 
 This means vendor confirms affected and patching should be planned, but it is not classified as immediate critical impact. It also includes `cleanup_old_kernel`, where an old vulnerable Ubuntu kernel package is still installed but is not the running kernel, and `workaround_active`, where Ansible verified an approved workaround result.
 
+### Mitigated Hosts
+
+Data view: `wazuh-vuln-host-cve-impact-latest`
+
+Filters:
+
+- query: `mitigation_status:mitigated or patch_decision:workaround_active`
+
+This shows hosts where the CVE still exists in Wazuh vulnerability data, but an approved workaround was verified on that specific host. These hosts should stay visible for audit and later patch cleanup, but they should not be mixed with unmitigated critical impact hosts.
+
 ### Columns
 
 Columns:
@@ -154,11 +165,12 @@ Columns:
 
 Data view: `wazuh-vuln-host-cve-impact-latest`
 
-The three host tables mirror the same three CVE groups:
+The host tables mirror the operational groups:
 
 - `Hosts - Critical Real Impact`
 - `Hosts - Needs Review`
 - `Hosts - Patch Scheduled`
+- `Hosts - Mitigated / Workaround Active`
 
 Each search panel is full-width on its own row so long fields such as `recommended_action`, `vendor_advisory_url`, and package lists stay readable.
 

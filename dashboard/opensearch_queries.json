@@ -236,5 +236,43 @@
         "poc_references"
       ]
     }
+  },
+  "mitigated_hosts": {
+    "index": "wazuh-vuln-host-cve-impact-latest",
+    "body": {
+      "size": 100,
+      "query": {
+        "bool": {
+          "should": [
+            { "term": { "mitigation_status": "mitigated" } },
+            { "term": { "patch_decision": "workaround_active" } }
+          ],
+          "minimum_should_match": 1
+        }
+      },
+      "sort": [
+        { "updated_at": "desc" },
+        { "risk_score": "desc" }
+      ],
+      "_source": [
+        "agent_id",
+        "agent_name",
+        "agent_ip",
+        "cve_id",
+        "patch_decision",
+        "impact_assessment",
+        "mitigation_status",
+        "workaround_verified",
+        "workaround_verified_at",
+        "workaround_check_passed",
+        "workaround_check_failed",
+        "workaround_policy_ids",
+        "workaround_check_titles",
+        "affected_packages",
+        "affected_package_versions",
+        "recommended_action",
+        "updated_at"
+      ]
+    }
   }
 }
