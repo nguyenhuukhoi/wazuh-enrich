@@ -197,6 +197,10 @@ WAZUH_INDEXER_URL=https://127.0.0.1:9200
 WAZUH_INDEXER_USERNAME=admin
 WAZUH_INDEXER_PASSWORD=your-password
 WAZUH_CA_CERT=/etc/filebeat/certs/root-ca.pem
+WAZUH_API_URL=https://127.0.0.1:55000
+WAZUH_API_USERNAME=wazuh
+WAZUH_API_PASSWORD=your-wazuh-api-password
+WAZUH_API_CA_CERT=
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 ```
@@ -372,6 +376,7 @@ Config:
 WORKAROUND_FEED_FILE: /var/lib/wazuh-enrich/feeds/cve_workarounds.yaml
 WORKAROUND_RESULT_FILE: /var/lib/wazuh-enrich/feeds/workaround_results.json
 SCA_WORKAROUND_ENABLED: false
+WAZUH_SCA_INDEX_PATTERN: wazuh-states-sca-*,wazuh-enrich-sca-results-*
 WORKAROUND_VERIFICATION_PRIORITY: sca_first
 WORKAROUND_COLLECTOR:
   enabled: false
@@ -386,6 +391,47 @@ WORKAROUND_COLLECTOR:
 sca_first     -> SCA overrides Ansible. This keeps the old behavior.
 ansible_first -> Ansible overrides SCA.
 ```
+
+## Optional SCA Index Sync
+
+Some Wazuh 4.14 deployments show SCA results in the agent/UI but do not create `wazuh-states-sca-*` indices in Wazuh Indexer. `wazuh-enrich` can pull SCA results from the Wazuh Manager API and write its own SCA index:
+
+```yaml
+WAZUH_API_URL: https://127.0.0.1:55000
+WAZUH_API_USERNAME: ${WAZUH_API_USERNAME}
+WAZUH_API_PASSWORD: ${WAZUH_API_PASSWORD}
+WAZUH_API_VERIFY_SSL: false
+
+SCA_WORKAROUND_ENABLED: true
+WAZUH_SCA_INDEX_PATTERN: wazuh-states-sca-*,wazuh-enrich-sca-results-*
+SCA_SYNC:
+  enabled: true
+  interval_seconds: 900
+  output_index_prefix: wazuh-enrich-sca-results
+  policy_query: workaround
+  page_limit: 500
+  max_agents_per_run: 1000
+```
+
+Run once:
+
+```bash
+/opt/wazuh-enrich/.venv/bin/python3 /opt/wazuh-enrich/vuln_enricher.py \
+  --config /etc/wazuh-enrich/config.yaml \
+  --log-format text \
+  sync-sca
+```
+
+Then enrich:
+
+```bash
+/opt/wazuh-enrich/.venv/bin/python3 /opt/wazuh-enrich/vuln_enricher.py \
+  --config /etc/wazuh-enrich/config.yaml \
+  --log-format text \
+  enrich-all
+```
+
+The SCA sync only pulls policies/checks matching `SCA_SYNC.policy_query` from agents that currently have active vulnerability findings, then writes `wazuh-enrich-sca-results-YYYY.MM.DD`.
 
 `WORKAROUND_FEED_FILE` is curated metadata that tells the dashboard where the workaround came from and which playbook owns it:
 
@@ -635,12 +681,14 @@ python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-feeds
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-poc-feed
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml build-workaround-feed --from-latest-impact
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-poc
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml sync-sca
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-all
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml enrich-agent --agent-id 001
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml process-inventory-updates
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml detect-new-agents
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml test-alert
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml debug-agent-ip --agent-id 001
+python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml debug-sca-workaround --agent-id 001 --cve-id CVE-2026-31431
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml run-once
 python3 vuln_enricher.py --config /etc/wazuh-enrich/config.yaml daemon
 ```

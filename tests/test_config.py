@@ -47,8 +47,10 @@ WORKAROUND_COLLECTOR:
     assert settings.workaround_collector["output_file"] == str(tmp_path / "feeds" / "cve_workarounds.yaml")
     assert settings.workaround_collector["sources"] == ["ubuntu"]
     assert settings.workaround_collector["max_cves_per_run"] == 25
+    assert settings.sca_sync["enabled"] is False
+    assert settings.sca_sync["output_index_prefix"] == "wazuh-enrich-sca-results"
     assert settings.sca_workaround_enabled is False
-    assert settings.wazuh_sca_index_pattern == "wazuh-states-sca-*"
+    assert settings.wazuh_sca_index_pattern == "wazuh-states-sca-*,wazuh-enrich-sca-results-*"
     assert settings.sca_workaround_query == "workaround CVE"
     assert settings.host_cve_impact_index_prefix == "wazuh-vuln-host-cve-impact"
     assert settings.agent_inventory_index_patterns == [

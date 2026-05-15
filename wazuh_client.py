@@ -263,6 +263,33 @@ class WazuhIndexerClient:
                     "updated_at": {"type": "date", "ignore_malformed": True},
                 },
             ),
+            "wazuh-enrich-sca-results-template": (
+                f"{self.settings.sca_sync.get('output_index_prefix', 'wazuh-enrich-sca-results')}-*",
+                {
+                    "agent": {"properties": {"id": {"type": "keyword"}, "name": {"type": "keyword"}}},
+                    "policy": {
+                        "properties": {
+                            "id": {"type": "keyword"},
+                            "name": {"type": "keyword"},
+                            "description": {"type": "text"},
+                        }
+                    },
+                    "check": {
+                        "properties": {
+                            "id": {"type": "keyword"},
+                            "title": {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 512}}},
+                            "description": {"type": "text"},
+                            "rationale": {"type": "text"},
+                            "remediation": {"type": "text"},
+                            "result": {"type": "keyword"},
+                            "status": {"type": "keyword"},
+                        }
+                    },
+                    "result": {"type": "keyword"},
+                    "status": {"type": "keyword"},
+                    "synced_at": {"type": "date", "ignore_malformed": True},
+                },
+            ),
         }
         for name, (pattern, properties) in templates.items():
             body = {
@@ -475,12 +502,29 @@ class WazuhIndexerClient:
         }
 
     def _sca_workaround_query_body(self, query_text: str) -> dict[str, Any]:
-        # Keep full _source here. Wazuh SCA field names differ slightly across
-        # versions/index templates, so the parser flattens the document below.
-        # Restricting _source can hide the real check/result fields and make
-        # mitigated checks appear as unknown.
+        source_fields = [
+            "agent.id",
+            "agent.name",
+            "policy.id",
+            "policy.name",
+            "policy.description",
+            "check.id",
+            "check.title",
+            "check.description",
+            "check.rationale",
+            "check.remediation",
+            "check.result",
+            "check.status",
+            "result",
+            "status",
+            "synced_at",
+        ]
+        restrict_source = "wazuh-states-sca" not in str(self.settings.wazuh_sca_index_pattern)
         if str(query_text).strip().lower() in {"*", "all", "match_all"}:
-            return {"query": {"match_all": {}}}
+            body: dict[str, Any] = {"query": {"match_all": {}}}
+            if restrict_source:
+                body["_source"] = source_fields
+            return body
         policy_query = {
             "bool": {
                 "should": [
@@ -508,7 +552,7 @@ class WazuhIndexerClient:
                 "default_operator": "and",
             }
         }
-        return {
+        body = {
             "query": {
                 "bool": {
                     "should": [policy_query, text_query],
@@ -516,6 +560,9 @@ class WazuhIndexerClient:
                 }
             },
         }
+        if restrict_source:
+            body["_source"] = source_fields
+        return body
 
     def iter_index_sources(self, index: str, query: dict[str, Any] | None = None) -> Iterable[dict[str, Any]]:
         body = {"query": query or {"match_all": {}}}
@@ -802,7 +849,7 @@ class WazuhIndexerClient:
 
     @staticmethod
     def _doc_id(doc: dict[str, Any], id_fields: list[str]) -> str:
-        raw = "|".join(str(doc.get(field, "")) for field in id_fields)
+        raw = "|".join(str(doc.get(field, "") or first_path(doc, [field], "")) for field in id_fields)
         return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
     @staticmethod

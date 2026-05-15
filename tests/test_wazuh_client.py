@@ -48,11 +48,21 @@ def test_sca_workaround_results_parse_cve_from_check_title():
 
 def test_sca_workaround_query_body_can_scan_workaround_policy():
     client = object.__new__(WazuhIndexerClient)
+    client.settings = SimpleNamespace(wazuh_sca_index_pattern="wazuh-states-sca-*,wazuh-enrich-sca-results-*")
     body = client._sca_workaround_query_body("workaround CVE")
 
     should = body["query"]["bool"]["should"]
     assert any("bool" in item for item in should)
     assert "_source" not in body
+
+
+def test_sca_workaround_query_body_limits_source_for_enrich_sca_index():
+    client = object.__new__(WazuhIndexerClient)
+    client.settings = SimpleNamespace(wazuh_sca_index_pattern="wazuh-enrich-sca-results-*")
+    body = client._sca_workaround_query_body("workaround CVE")
+
+    assert "agent.id" in body["_source"]
+    assert "check.title" in body["_source"]
 
 
 def test_sca_workaround_results_accepts_succeeded_result():

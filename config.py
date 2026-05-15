@@ -33,6 +33,11 @@ class Settings:
     wazuh_indexer_password: str
     wazuh_ca_cert: str
     verify_ssl: bool
+    wazuh_api_url: str
+    wazuh_api_username: str
+    wazuh_api_password: str
+    wazuh_api_ca_cert: str
+    wazuh_api_verify_ssl: bool
     wazuh_vuln_index_pattern: str
     wazuh_sca_index_pattern: str
     sca_workaround_enabled: bool
@@ -60,6 +65,7 @@ class Settings:
     telegram_chat_id: str
     alert_thresholds: dict[str, Any]
     schedule: dict[str, int]
+    sca_sync: dict[str, Any]
     poc_build: dict[str, Any]
     workaround_collector: dict[str, Any]
     ubuntu_oval: dict[str, Any]
@@ -69,6 +75,12 @@ class Settings:
         if not self.verify_ssl:
             return False
         return self.wazuh_ca_cert or True
+
+    @property
+    def api_ssl_verify_value(self) -> bool | str:
+        if not self.wazuh_api_verify_ssl:
+            return False
+        return self.wazuh_api_ca_cert or True
 
 
 def load_config(path: str = "config.yaml") -> Settings:
@@ -104,8 +116,13 @@ def load_config(path: str = "config.yaml") -> Settings:
         wazuh_indexer_password=cfg["WAZUH_INDEXER_PASSWORD"],
         wazuh_ca_cert=cfg.get("WAZUH_CA_CERT", ""),
         verify_ssl=_as_bool(cfg.get("VERIFY_SSL", True)),
+        wazuh_api_url=str(cfg.get("WAZUH_API_URL", "")).rstrip("/"),
+        wazuh_api_username=str(cfg.get("WAZUH_API_USERNAME", "")),
+        wazuh_api_password=str(cfg.get("WAZUH_API_PASSWORD", "")),
+        wazuh_api_ca_cert=str(cfg.get("WAZUH_API_CA_CERT", cfg.get("WAZUH_CA_CERT", ""))),
+        wazuh_api_verify_ssl=_as_bool(cfg.get("WAZUH_API_VERIFY_SSL", cfg.get("VERIFY_SSL", True))),
         wazuh_vuln_index_pattern=cfg["WAZUH_VULN_INDEX_PATTERN"],
-        wazuh_sca_index_pattern=cfg.get("WAZUH_SCA_INDEX_PATTERN", "wazuh-states-sca-*"),
+        wazuh_sca_index_pattern=cfg.get("WAZUH_SCA_INDEX_PATTERN", "wazuh-states-sca-*,wazuh-enrich-sca-results-*"),
         sca_workaround_enabled=_as_bool(cfg.get("SCA_WORKAROUND_ENABLED", False)),
         sca_workaround_query=str(cfg.get("SCA_WORKAROUND_QUERY", "workaround CVE")),
         agent_inventory_index_patterns=_as_list(
@@ -149,6 +166,7 @@ def load_config(path: str = "config.yaml") -> Settings:
         telegram_chat_id=cfg.get("TELEGRAM_CHAT_ID", ""),
         alert_thresholds=cfg["ALERT_THRESHOLDS"],
         schedule={key: int(val) for key, val in cfg.get("SCHEDULE", {}).items()},
+        sca_sync=_normalize_sca_sync(cfg.get("SCA_SYNC", {})),
         poc_build=_normalize_poc_build(cfg.get("POC_BUILD", {})),
         workaround_collector=_normalize_workaround_collector(cfg.get("WORKAROUND_COLLECTOR", {})),
         ubuntu_oval=_normalize_ubuntu_oval(cfg.get("UBUNTU_OVAL", {})),
@@ -164,6 +182,17 @@ def _normalize_poc_build(raw: dict[str, Any]) -> dict[str, Any]:
     for key in ["exploitdb_csv", "nuclei_templates", "poc_in_github", "trickest_cve"]:
         if cfg.get(key) in ("", None):
             cfg[key] = None
+    return cfg
+
+
+def _normalize_sca_sync(raw: dict[str, Any]) -> dict[str, Any]:
+    cfg = dict(raw or {})
+    cfg["enabled"] = _as_bool(cfg.get("enabled", False))
+    cfg["interval_seconds"] = int(cfg.get("interval_seconds", 900) or 900)
+    cfg["output_index_prefix"] = str(cfg.get("output_index_prefix") or "wazuh-enrich-sca-results")
+    cfg["policy_query"] = str(cfg.get("policy_query") or "workaround")
+    cfg["page_limit"] = int(cfg.get("page_limit", 500) or 500)
+    cfg["max_agents_per_run"] = int(cfg.get("max_agents_per_run", 1000) or 1000)
     return cfg
 
 

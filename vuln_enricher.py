@@ -19,6 +19,7 @@ from summary import build_cve_summary, build_host_cve_impact_summary, build_host
 from tools.build_poc_feed import build_poc_feed
 from workaround import build_mitigation_records, load_workaround_feed, load_workaround_results
 from workaround_collector import build_workaround_feed, normalize_cve
+from wazuh_api_client import WazuhManagerApiClient
 from wazuh_client import WazuhIndexerClient
 
 
@@ -308,6 +309,36 @@ def build_workaround_metadata(
     )
     LOG.info("workaround_collect_done output=%s cves=%s records=%s", output_file, len(set(selected_cves)), count)
     return count
+
+
+def build_wazuh_api_client(settings: Settings) -> WazuhManagerApiClient:
+    return WazuhManagerApiClient(
+        url=settings.wazuh_api_url,
+        username=settings.wazuh_api_username,
+        password=settings.wazuh_api_password,
+        verify=settings.api_ssl_verify_value,
+        timeout=settings.request_timeout_seconds,
+        page_limit=int(settings.sca_sync.get("page_limit", 500)),
+    )
+
+
+def sync_sca_results(settings: Settings, client: WazuhIndexerClient) -> dict[str, Any]:
+    if not settings.sca_sync.get("enabled"):
+        LOG.info("sca_sync skipped=true reason=disabled")
+        return {"enabled": False, "docs": 0}
+    api = build_wazuh_api_client(settings)
+    max_agents = int(settings.sca_sync.get("max_agents_per_run", 1000))
+    agents = client.list_agents_with_vulnerabilities()[:max_agents]
+    docs = api.sca_policy_docs_for_agents(
+        agents,
+        policy_query=str(settings.sca_sync.get("policy_query", "workaround")),
+    )
+    index = client.index_name(str(settings.sca_sync.get("output_index_prefix", "wazuh-enrich-sca-results")))
+    client.ensure_templates()
+    client.bulk_index(index, docs, ["agent.id", "policy.id", "check.id"])
+    result = {"enabled": True, "agents": len(agents), "docs": len(docs), "index": index}
+    LOG.info("sca_sync_done %s", json.dumps(result, sort_keys=True))
+    return result
 
 
 def file_sha256(path: Path | None) -> str | None:
@@ -687,6 +718,8 @@ def run_once(settings: Settings, dry_run: bool = False, dry_run_send_alerts: boo
     state = StateStore(settings.state_file)
     client = WazuhIndexerClient(settings)
     sync_feeds(settings)
+    if not dry_run:
+        sync_sca_results(settings, client)
     process_inventory_updates(settings, client, state, dry_run=dry_run, dry_run_send_alerts=dry_run_send_alerts)
     enrich(settings, client, state, full=False, dry_run=dry_run, dry_run_send_alerts=dry_run_send_alerts)
     detect_new_agents(settings, client, state, dry_run=dry_run, dry_run_send_alerts=dry_run_send_alerts)
@@ -784,6 +817,10 @@ def daemon(config_path: str, settings: Settings, dry_run: bool = False, dry_run_
                 after = feed_sync.fingerprints()
                 feeds_changed = feeds_changed or before.get("poc") != after.get("poc")
                 last_run["poc_build_seconds"] = now
+            if settings.sca_sync.get("enabled") and now - last_run["sca_sync_seconds"] >= schedule["sca_sync_seconds"]:
+                if not dry_run:
+                    sync_sca_results(settings, client)
+                last_run["sca_sync_seconds"] = now
             if (
                 settings.workaround_collector.get("enabled")
                 and now - last_run["workaround_collector_seconds"] >= schedule["workaround_collector_seconds"]
@@ -863,6 +900,7 @@ def build_daemon_schedule(settings: Settings) -> dict[str, int]:
         "ubuntu_osv_sync_seconds": settings.schedule.get("ubuntu_osv_sync_seconds", 86400),
         "inventory_watch_seconds": settings.schedule.get("inventory_watch_seconds", 60),
         "poc_build_seconds": int(settings.poc_build.get("interval_seconds", 86400)),
+        "sca_sync_seconds": int(settings.sca_sync.get("interval_seconds", 900)),
         "workaround_collector_seconds": int(settings.workaround_collector.get("interval_seconds", 86400)),
         "detect_new_agents_seconds": settings.schedule.get("detect_new_agents_seconds", 300),
     }
@@ -895,6 +933,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("sync-feeds")
     sub.add_parser("sync-poc")
+    sub.add_parser("sync-sca")
     sub.add_parser("build-poc-feed")
     workaround_parser = sub.add_parser("build-workaround-feed")
     workaround_parser.add_argument("--cve", action="append", default=[], help="CVE ID to collect. Can be repeated.")
@@ -933,6 +972,8 @@ def main(argv: list[str] | None = None) -> int:
             sync_feeds(settings, force=True)
         elif args.command == "sync-poc":
             sync_poc(settings)
+        elif args.command == "sync-sca":
+            sync_sca_results(settings, client)
         elif args.command == "build-poc-feed":
             build_poc_metadata(settings)
         elif args.command == "build-workaround-feed":

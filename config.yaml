@@ -7,12 +7,27 @@ WAZUH_INDEXER_PASSWORD: ${WAZUH_INDEXER_PASSWORD}
 WAZUH_CA_CERT: ${WAZUH_CA_CERT}
 VERIFY_SSL: true
 
+# Optional Wazuh Manager API. Used only when SCA_SYNC.enabled=true to pull SCA
+# results from the manager API and write a local OpenSearch SCA index.
+WAZUH_API_URL: ${WAZUH_API_URL}
+WAZUH_API_USERNAME: ${WAZUH_API_USERNAME}
+WAZUH_API_PASSWORD: ${WAZUH_API_PASSWORD}
+WAZUH_API_CA_CERT: ${WAZUH_API_CA_CERT}
+WAZUH_API_VERIFY_SSL: true
+
 WAZUH_VULN_INDEX_PATTERN: wazuh-states-vulnerabilities-*
 # Optional SCA workaround verification. Keep disabled until you create a small
 # dedicated workaround SCA policy. Do not scan all generic SCA results.
 SCA_WORKAROUND_ENABLED: false
-WAZUH_SCA_INDEX_PATTERN: wazuh-states-sca-*
+WAZUH_SCA_INDEX_PATTERN: wazuh-states-sca-*,wazuh-enrich-sca-results-*
 SCA_WORKAROUND_QUERY: workaround CVE
+SCA_SYNC:
+  enabled: false
+  interval_seconds: 900
+  output_index_prefix: wazuh-enrich-sca-results
+  policy_query: workaround
+  page_limit: 500
+  max_agents_per_run: 1000
 AGENT_INVENTORY_INDEX_PATTERNS:
   - wazuh-states-inventory-system-*
   - wazuh-states-inventory-packages-*
