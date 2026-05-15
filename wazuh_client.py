@@ -318,7 +318,8 @@ class WazuhIndexerClient:
         body = self._sca_workaround_query_body(query_text)
         grouped: dict[tuple[str, str], dict[str, Any]] = {}
         for source in self._scroll_sources(self.settings.wazuh_sca_index_pattern, body, ignore_unavailable=True):
-            agent_id = str(first_path(source, ["agent.id"], ""))
+            flat = _flatten_source(source)
+            agent_id = str(first_path(source, ["agent.id", "data.agent.id"], "") or _first_flat_value(flat, ["agent.id"]))
             if not agent_id:
                 continue
             text = " ".join(
@@ -333,13 +334,44 @@ class WazuhIndexerClient:
                     "policy.name",
                 ]
             )
+            if not text.strip():
+                text = " ".join(str(value) for _, value in flat)
             cve_ids = {match.group(0).upper() for match in CVE_RE.finditer(text)}
             if not cve_ids:
                 continue
-            result = _sca_result(first_path(source, ["check.result", "check.status", "result", "status"], ""))
-            policy_id = str(first_path(source, ["policy.id"], ""))
-            check_id = str(first_path(source, ["check.id"], ""))
-            check_title = str(first_path(source, ["check.title"], ""))
+            result = _sca_result(
+                first_path(
+                    source,
+                    [
+                        "check.result",
+                        "check.status",
+                        "result",
+                        "status",
+                        "data.check.result",
+                        "data.check.status",
+                        "data.result",
+                        "data.status",
+                    ],
+                    "",
+                )
+            )
+            if result == "unknown":
+                result = _sca_result(_first_flat_value(flat, ["check.result", "check.status", "result", "status"]))
+            policy_id = str(
+                first_path(source, ["policy.id", "data.policy.id"], "")
+                or _first_flat_value(flat, ["policy.id"])
+                or ""
+            )
+            check_id = str(
+                first_path(source, ["check.id", "data.check.id"], "")
+                or _first_flat_value(flat, ["check.id"])
+                or ""
+            )
+            check_title = str(
+                first_path(source, ["check.title", "data.check.title"], "")
+                or _first_flat_value(flat, ["check.title"])
+                or ""
+            )
             for cve_id in cve_ids:
                 record = grouped.setdefault(
                     (agent_id, cve_id),
@@ -381,24 +413,74 @@ class WazuhIndexerClient:
         LOG.info("sca_workaround_results_loaded records=%s index=%s", len(normalized), self.settings.wazuh_sca_index_pattern)
         return normalized
 
+    def sample_sca_workaround(self, agent_id: str, cve_id: str, limit: int = 10) -> dict[str, Any]:
+        body = {
+            "size": limit,
+            "query": {
+                "bool": {
+                    "filter": [{"term": {"agent.id": agent_id}}],
+                    "should": [
+                        {"query_string": {"query": f'"{cve_id}" OR workaround OR ubuntu-workaround-verification'}},
+                        {"match_all": {}},
+                    ],
+                    "minimum_should_match": 1,
+                }
+            },
+        }
+        response = self.client.search(
+            index=self.settings.wazuh_sca_index_pattern,
+            body=body,
+            params={"ignore_unavailable": "true"},
+            request_timeout=self.settings.request_timeout_seconds,
+        )
+        docs = []
+        for hit in response.get("hits", {}).get("hits", []):
+            source = hit.get("_source") or {}
+            flat = _flatten_source(source)
+            docs.append(
+                {
+                    "index": hit.get("_index"),
+                    "id": hit.get("_id"),
+                    "agent_id": first_path(source, ["agent.id", "data.agent.id"], "")
+                    or _first_flat_value(flat, ["agent.id"]),
+                    "cves_found": sorted({match.group(0).upper() for _, value in flat for match in CVE_RE.finditer(str(value))}),
+                    "result": first_path(
+                        source,
+                        ["check.result", "check.status", "result", "status", "data.check.result", "data.check.status"],
+                        "",
+                    )
+                    or _first_flat_value(flat, ["check.result", "check.status", "result", "status"]),
+                    "policy_id": first_path(source, ["policy.id", "data.policy.id"], "")
+                    or _first_flat_value(flat, ["policy.id"]),
+                    "check_id": first_path(source, ["check.id", "data.check.id"], "")
+                    or _first_flat_value(flat, ["check.id"]),
+                    "check_title": first_path(source, ["check.title", "data.check.title"], "")
+                    or _first_flat_value(flat, ["check.title"]),
+                    "interesting_fields": {
+                        path: value
+                        for path, value in flat
+                        if any(token in path.lower() for token in ["agent", "policy", "check", "result", "status"])
+                    },
+                }
+            )
+        parsed = self.sca_workaround_results()
+        return {
+            "sca_enabled": getattr(self.settings, "sca_workaround_enabled", False),
+            "sca_index": self.settings.wazuh_sca_index_pattern,
+            "sca_query": getattr(self.settings, "sca_workaround_query", ""),
+            "agent_id": agent_id,
+            "cve_id": cve_id,
+            "parsed_record": parsed.get((agent_id, cve_id), {}),
+            "sample_docs": docs,
+        }
+
     def _sca_workaround_query_body(self, query_text: str) -> dict[str, Any]:
-        source_fields = [
-            "agent.id",
-            "agent.name",
-            "policy.id",
-            "policy.name",
-            "check.id",
-            "check.title",
-            "check.description",
-            "check.rationale",
-            "check.remediation",
-            "check.result",
-            "check.status",
-            "result",
-            "status",
-        ]
+        # Keep full _source here. Wazuh SCA field names differ slightly across
+        # versions/index templates, so the parser flattens the document below.
+        # Restricting _source can hide the real check/result fields and make
+        # mitigated checks appear as unknown.
         if str(query_text).strip().lower() in {"*", "all", "match_all"}:
-            return {"query": {"match_all": {}}, "_source": source_fields}
+            return {"query": {"match_all": {}}}
         policy_query = {
             "bool": {
                 "should": [
@@ -433,7 +515,6 @@ class WazuhIndexerClient:
                     "minimum_should_match": 1,
                 }
             },
-            "_source": source_fields,
         }
 
     def iter_index_sources(self, index: str, query: dict[str, Any] | None = None) -> Iterable[dict[str, Any]]:
@@ -777,3 +858,31 @@ def _sca_result(value: Any) -> str:
     if text in {"failed", "fail", "not_compliant", "non-compliant", "false", "0", "no", "error"}:
         return "failed"
     return "unknown"
+
+
+def _flatten_source(data: Any, prefix: str = "") -> list[tuple[str, Any]]:
+    flattened: list[tuple[str, Any]] = []
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if str(key).startswith("_wazuh_source_"):
+                continue
+            path = f"{prefix}.{key}" if prefix else str(key)
+            flattened.extend(_flatten_source(value, path))
+        return flattened
+    if isinstance(data, list):
+        for index, value in enumerate(data):
+            path = f"{prefix}.{index}" if prefix else str(index)
+            flattened.extend(_flatten_source(value, path))
+        return flattened
+    flattened.append((prefix, data))
+    return flattened
+
+
+def _first_flat_value(flat: list[tuple[str, Any]], suffixes: list[str]) -> Any:
+    lowered_suffixes = [suffix.lower() for suffix in suffixes]
+    for path, value in flat:
+        lowered = path.lower()
+        if any(lowered == suffix or lowered.endswith(f".{suffix}") for suffix in lowered_suffixes):
+            if value not in (None, ""):
+                return value
+    return ""

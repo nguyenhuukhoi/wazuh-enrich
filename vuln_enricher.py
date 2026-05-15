@@ -659,6 +659,17 @@ def debug_agent_ip(settings: Settings, client: WazuhIndexerClient, agent_id: str
     return result
 
 
+def debug_sca_workaround(
+    settings: Settings,
+    client: WazuhIndexerClient,
+    agent_id: str,
+    cve_id: str,
+) -> dict[str, Any]:
+    result = client.sample_sca_workaround(agent_id, cve_id.upper())
+    print(json.dumps(result, indent=2, ensure_ascii=True, sort_keys=True))
+    return result
+
+
 def test_alert(settings: Settings, state: StateStore, dry_run: bool = False) -> None:
     AlertManager(
         bot_token=settings.telegram_bot_token,
@@ -902,6 +913,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("test-alert")
     debug_ip_parser = sub.add_parser("debug-agent-ip")
     debug_ip_parser.add_argument("--agent-id", required=True)
+    debug_sca_parser = sub.add_parser("debug-sca-workaround")
+    debug_sca_parser.add_argument("--agent-id", required=True)
+    debug_sca_parser.add_argument("--cve-id", required=True)
     sub.add_parser("run-once")
     sub.add_parser("daemon")
     return parser
@@ -969,6 +983,8 @@ def main(argv: list[str] | None = None) -> int:
             test_alert(settings, state, dry_run=args.dry_run)
         elif args.command == "debug-agent-ip":
             debug_agent_ip(settings, client, args.agent_id)
+        elif args.command == "debug-sca-workaround":
+            debug_sca_workaround(settings, client, args.agent_id, args.cve_id)
         elif args.command == "run-once":
             run_once(settings, dry_run=args.dry_run, dry_run_send_alerts=args.dry_run_send_alerts)
             return 0
