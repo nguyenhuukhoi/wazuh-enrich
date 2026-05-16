@@ -783,7 +783,6 @@ ALERT_THRESHOLDS:
   send_all_alerts: true
   alert_scope: critical_real_impact
   public_poc_only: true
-  alert_interval_seconds: 3600
   max_top_cves: 0
 ```
 
@@ -816,7 +815,7 @@ muted_alerts:
 
 Supported host match fields are `agent_id`, `agent_name`, `agent_ip`, and `host`. The `host` shortcut matches agent ID, agent name, agent IP, or impact host.
 
-`alert_interval_seconds` is the minimum gap between two aggregate cycle alerts. It only applies to the normal cycle alert from `process_cycle`; new-agent baseline alerts are still checked immediately when detected, but they use the same `alert_scope` logic and alert format as the cycle alert. The first eligible alert after service start is sent immediately if `STATE_FILE` has no previous `last_alert_sent_by_type.cycle`. If the service is restarted and the previous cycle alert is still inside the interval window, the restart will not spam Telegram.
+`alert_interval_seconds` is the minimum gap between two normal deduplicated aggregate cycle alerts. It is ignored when `send_all_alerts: true`, so the old behavior is preserved: every eligible enrichment cycle can send Telegram again. New-agent baseline alerts are still checked immediately when detected, but they use the same `alert_scope` logic and alert format as the cycle alert. The first eligible alert after service start is sent immediately if `STATE_FILE` has no previous `last_alert_sent_by_type.cycle`. If the service is restarted and the previous cycle alert is still inside the interval window, the restart will not spam Telegram unless `send_all_alerts: true` is enabled.
 
 This option does not create a separate alert scheduler. Alerts are evaluated when enrichment/inventory processing runs. If `alert_interval_seconds` is smaller than `SCHEDULE.enrichment_seconds`, the real resend pace is still limited by the enrichment cycle.
 

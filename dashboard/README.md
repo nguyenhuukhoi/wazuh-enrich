@@ -62,6 +62,10 @@ Delete and import again:
 python3 dashboard/manage_saved_objects.py reimport --no-verify-ssl
 ```
 
+`reimport` also removes legacy saved searches named `search-public-poc` and
+`search-public-poc-hosts`. Those IDs were used by older dashboard builds and can
+keep stale data view references if an import was done without overwrite.
+
 If you imported into a non-default tenant, add:
 
 ```bash

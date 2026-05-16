@@ -146,9 +146,9 @@ ALERT_THRESHOLDS:
   public_poc_only: false
   # Inline mute list kept for quick tests. In production prefer ALERT_BYPASS_FILE.
   muted_alerts: []
-  # How often Telegram may resend the same aggregate cycle alert.
+  # How often Telegram may resend normal deduplicated cycle alerts.
   # 0 = no time limit.
-  # If send_all_alerts is true, Telegram can send again every enrichment cycle.
+  # If send_all_alerts is true, this interval is ignored and Telegram sends every eligible cycle like the old behavior.
   # If send_all_alerts is false, STATE_FILE dedup still prevents old CVE alerts from repeating.
   alert_interval_seconds: 0
   # Set 0 to include every matched CVE in the Telegram message.

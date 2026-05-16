@@ -346,8 +346,8 @@ def dashboard_object() -> dict[str, Any]:
         )
 
     add("vis-impact-controls", "visualization", 0, 0, 48, 8)
-    add("search-public-poc", "search", 0, 8, 48, 14)
-    add("search-public-poc-hosts", "search", 0, 22, 48, 14)
+    add("search-dangerous-cves-latest", "search", 0, 8, 48, 14)
+    add("search-dangerous-hosts-latest", "search", 0, 22, 48, 14)
     add("search-critical-real-impact", "search", 0, 36, 48, 14)
     add("search-critical-real-impact-hosts", "search", 0, 50, 48, 14)
     add("search-mitigated-hosts", "search", 0, 64, 48, 14)
@@ -359,8 +359,8 @@ def dashboard_object() -> dict[str, Any]:
     references = []
     panel_ids = [
         ("vis-impact-controls", "visualization"),
-        ("search-public-poc", "search"),
-        ("search-public-poc-hosts", "search"),
+        ("search-dangerous-cves-latest", "search"),
+        ("search-dangerous-hosts-latest", "search"),
         ("search-critical-real-impact", "search"),
         ("search-critical-real-impact-hosts", "search"),
         ("search-mitigated-hosts", "search"),
@@ -463,7 +463,7 @@ def build_objects() -> list[dict[str, Any]]:
         index_pattern(HOST_CVE_IMPACT, "wazuh-vuln-host-cve-impact-latest", "updated_at"),
         controls_vis("vis-impact-controls", "Impact Filters", HOST_CVE_IMPACT),
         saved_search(
-            "search-public-poc",
+            "search-dangerous-cves-latest",
             "Dangerous CVEs Impacting This System",
             CVE_SUMMARY,
             poc_columns,
@@ -472,7 +472,7 @@ def build_objects() -> list[dict[str, Any]]:
             filters=[range_filter("affected_hosts_count", 1, CVE_SUMMARY)],
         ),
         saved_search(
-            "search-public-poc-hosts",
+            "search-dangerous-hosts-latest",
             "Hosts Affected by Dangerous CVEs",
             HOST_CVE_IMPACT,
             poc_host_columns,

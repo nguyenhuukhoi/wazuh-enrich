@@ -750,7 +750,6 @@ ALERT_THRESHOLDS:
   send_all_alerts: true
   alert_scope: critical_real_impact
   public_poc_only: true
-  alert_interval_seconds: 3600
   max_top_cves: 0
 ```
 
@@ -783,7 +782,7 @@ muted_alerts:
 
 Field host co the dung: `agent_id`, `agent_name`, `agent_ip`, va `host`. Shortcut `host` se match agent ID, agent name, agent IP, hoac impact host.
 
-`alert_interval_seconds` là khoảng cách tối thiểu giữa 2 lần aggregate cycle alert. Nó chỉ áp dụng cho alert cycle bình thường từ `process_cycle`; alert baseline của agent mới vẫn được check ngay khi detect, nhưng dùng cùng logic `alert_scope` và cùng format alert với cycle alert. Lần alert đầu tiên sau khi start service sẽ gửi ngay nếu `STATE_FILE` chưa có `last_alert_sent_by_type.cycle`. Nếu service restart và lần gửi cycle alert trước vẫn còn trong khoảng interval, service sẽ không spam Telegram sau restart.
+`alert_interval_seconds` là khoảng cách tối thiểu giữa 2 lần aggregate cycle alert ở chế độ dedup bình thường. Nếu `send_all_alerts: true` thì app bỏ qua interval này để giữ logic cũ: mỗi enrichment cycle đủ điều kiện đều có thể gửi Telegram lại. Alert baseline của agent mới vẫn được check ngay khi detect, nhưng dùng cùng logic `alert_scope` và cùng format alert với cycle alert. Lần alert đầu tiên sau khi start service sẽ gửi ngay nếu `STATE_FILE` chưa có `last_alert_sent_by_type.cycle`. Nếu service restart và lần gửi cycle alert trước vẫn còn trong khoảng interval, service sẽ không spam Telegram sau restart, trừ khi bạn bật `send_all_alerts: true`.
 
 Option này không tạo scheduler alert riêng. Alert chỉ được evaluate khi enrichment/inventory processing chạy. Nếu `alert_interval_seconds` nhỏ hơn `SCHEDULE.enrichment_seconds`, nhịp gửi thực tế vẫn bị giới hạn bởi enrichment cycle.
 

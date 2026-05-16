@@ -87,6 +87,7 @@ class AlertManager:
         if self._cycle_alert_throttled():
             return
         alert_docs, alert_summaries = self._alert_inputs(enriched_docs, cve_summaries)
+        alert_summaries = self._dedupe_cve_summaries(alert_summaries)
         alert_state_backup = {
             "alert_dedup_keys": dict(self.state.data.get("alert_dedup_keys", {})),
             "last_kev_status_by_cve": dict(self.state.data.get("last_kev_status_by_cve", {})),
@@ -227,6 +228,8 @@ class AlertManager:
         return True
 
     def _cycle_alert_throttled(self) -> bool:
+        if self.send_all_alerts:
+            return False
         if self.alert_interval_seconds <= 0:
             return False
         elapsed, last_sent = self.state.alert_interval_elapsed("cycle", self.alert_interval_seconds)
@@ -238,6 +241,31 @@ class AlertManager:
             self.alert_interval_seconds,
         )
         return True
+
+    @staticmethod
+    def _dedupe_cve_summaries(cve_summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        deduped: dict[str, dict[str, Any]] = {}
+        for cve in cve_summaries:
+            cve_id = normalize_cve_id(cve.get("cve_id"))
+            if not cve_id:
+                continue
+            current = deduped.get(cve_id)
+            if current is None:
+                deduped[cve_id] = cve
+                continue
+            current_rank = (
+                PATCH_DECISION_ORDER.get(str(current.get("patch_decision", "monitor")), 99),
+                -float(current.get("risk_score", 0.0)),
+                -int(current.get("affected_hosts_count", 0)),
+            )
+            candidate_rank = (
+                PATCH_DECISION_ORDER.get(str(cve.get("patch_decision", "monitor")), 99),
+                -float(cve.get("risk_score", 0.0)),
+                -int(cve.get("affected_hosts_count", 0)),
+            )
+            if candidate_rank < current_rank:
+                deduped[cve_id] = cve
+        return list(deduped.values())
 
     def _new_interesting_cves(self, cve_summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         selected = []

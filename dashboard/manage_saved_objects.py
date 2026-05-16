@@ -14,11 +14,16 @@ DEFAULT_NDJSON = Path(__file__).with_name("wazuh-vuln-enrichment.ndjson")
 RELATED_INDEX_PATTERNS = [
     "wazuh-vuln-enriched-latest",
     "wazuh-vuln-cve-summary-latest",
+    "wazuh-vuln-host-summary-latest",
     "wazuh-vuln-host-cve-impact-latest",
     "wazuh-vuln-enriched-*",
     "wazuh-vuln-cve-summary-*",
     "wazuh-vuln-host-summary-*",
     "wazuh-vuln-host-cve-impact-*",
+]
+LEGACY_SAVED_OBJECTS = [
+    ("search", "search-public-poc", "legacy dangerous CVE search"),
+    ("search", "search-public-poc-hosts", "legacy dangerous host search"),
 ]
 
 
@@ -106,6 +111,16 @@ def collect_index_patterns(client: SavedObjectsClient) -> list[tuple[str, str, s
     return objects
 
 
+def collect_legacy_objects(client: SavedObjectsClient) -> list[tuple[str, str, str]]:
+    objects: list[tuple[str, str, str]] = []
+    for object_type, object_id, title in LEGACY_SAVED_OBJECTS:
+        response = client.request("GET", f"/api/saved_objects/{object_type}/{object_id}")
+        if response.status_code == 404:
+            continue
+        objects.append((object_type, object_id, title))
+    return objects
+
+
 def dedupe(objects: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
     seen = set()
     unique = []
@@ -119,7 +134,7 @@ def dedupe(objects: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
 
 
 def command_list(client: SavedObjectsClient, title: str) -> int:
-    objects = dedupe(collect_dashboard_objects(client, title) + collect_index_patterns(client))
+    objects = dedupe(collect_dashboard_objects(client, title) + collect_index_patterns(client) + collect_legacy_objects(client))
     if not objects:
         print("No matching saved objects found.")
         return 0
@@ -129,7 +144,7 @@ def command_list(client: SavedObjectsClient, title: str) -> int:
 
 
 def command_delete(client: SavedObjectsClient, title: str, dry_run: bool) -> int:
-    objects = dedupe(collect_dashboard_objects(client, title) + collect_index_patterns(client))
+    objects = dedupe(collect_dashboard_objects(client, title) + collect_index_patterns(client) + collect_legacy_objects(client))
     if not objects:
         print("No matching saved objects found.")
         return 0
