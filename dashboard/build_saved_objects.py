@@ -8,6 +8,7 @@ ENRICHED = "wazuh-vuln-enriched-pattern"
 CVE_SUMMARY = "wazuh-vuln-cve-summary-pattern"
 HOST_SUMMARY = "wazuh-vuln-host-summary-pattern"
 HOST_CVE_IMPACT = "wazuh-vuln-host-cve-impact-pattern"
+DANGEROUS_QUERY = "patch_decision:patch_now or patch_decision:needs_review or kev:true or public_poc:true or epss_score >= 0.7"
 CRITICAL_REAL_IMPACT_QUERY = (
     "patch_decision:patch_now and "
     "(verification_status:confirmed_affected or verification_status:likely_affected) and "
@@ -345,17 +346,21 @@ def dashboard_object() -> dict[str, Any]:
         )
 
     add("vis-impact-controls", "visualization", 0, 0, 48, 8)
-    add("search-critical-real-impact", "search", 0, 8, 48, 14)
-    add("search-critical-real-impact-hosts", "search", 0, 22, 48, 14)
-    add("search-mitigated-hosts", "search", 0, 36, 48, 14)
-    add("search-needs-review", "search", 0, 50, 48, 14)
-    add("search-needs-review-hosts", "search", 0, 64, 48, 14)
-    add("search-patch-scheduled", "search", 0, 78, 48, 14)
-    add("search-patch-scheduled-hosts", "search", 0, 92, 48, 14)
+    add("search-public-poc", "search", 0, 8, 48, 14)
+    add("search-public-poc-hosts", "search", 0, 22, 48, 14)
+    add("search-critical-real-impact", "search", 0, 36, 48, 14)
+    add("search-critical-real-impact-hosts", "search", 0, 50, 48, 14)
+    add("search-mitigated-hosts", "search", 0, 64, 48, 14)
+    add("search-needs-review", "search", 0, 78, 48, 14)
+    add("search-needs-review-hosts", "search", 0, 92, 48, 14)
+    add("search-patch-scheduled", "search", 0, 106, 48, 14)
+    add("search-patch-scheduled-hosts", "search", 0, 120, 48, 14)
 
     references = []
     panel_ids = [
         ("vis-impact-controls", "visualization"),
+        ("search-public-poc", "search"),
+        ("search-public-poc-hosts", "search"),
         ("search-critical-real-impact", "search"),
         ("search-critical-real-impact-hosts", "search"),
         ("search-mitigated-hosts", "search"),
@@ -457,6 +462,23 @@ def build_objects() -> list[dict[str, Any]]:
         index_pattern(CVE_SUMMARY, "wazuh-vuln-cve-summary-latest", "updated_at"),
         index_pattern(HOST_CVE_IMPACT, "wazuh-vuln-host-cve-impact-latest", "updated_at"),
         controls_vis("vis-impact-controls", "Impact Filters", HOST_CVE_IMPACT),
+        saved_search(
+            "search-public-poc",
+            "Dangerous CVEs Impacting This System",
+            CVE_SUMMARY,
+            poc_columns,
+            "risk_score",
+            query=DANGEROUS_QUERY,
+            filters=[range_filter("affected_hosts_count", 1, CVE_SUMMARY)],
+        ),
+        saved_search(
+            "search-public-poc-hosts",
+            "Hosts Affected by Dangerous CVEs",
+            HOST_CVE_IMPACT,
+            poc_host_columns,
+            "risk_score",
+            query=DANGEROUS_QUERY,
+        ),
         saved_search(
             "search-critical-real-impact",
             "Critical Real Impact CVEs",

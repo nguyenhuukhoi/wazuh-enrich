@@ -19,12 +19,14 @@ Import:
 dashboard/wazuh-vuln-enrichment.ndjson
 ```
 
-The import creates 12 saved objects:
+The import creates 14 saved objects:
 
 - Data view: `wazuh-vuln-cve-summary-latest`
 - Data view: `wazuh-vuln-enriched-latest` with time field `enriched_at`
 - Data view: `wazuh-vuln-host-cve-impact-latest`
 - Visualization: `Impact Filters`
+- Search: `Dangerous CVEs Impacting This System`
+- Search: `Hosts Affected by Dangerous CVEs`
 - Search: `Critical Real Impact CVEs`
 - Search: `Hosts - Critical Real Impact`
 - Search: `Needs Review CVEs`
@@ -82,6 +84,25 @@ Controls:
 - `Mitigation status`: dropdown on `mitigation_status.keyword`.
 
 These fields come from `wazuh-vuln-host-cve-impact-latest`, which has one row per impacted CVE/host pair.
+
+### Dangerous Overview
+
+Data views:
+
+- `wazuh-vuln-cve-summary-latest`
+- `wazuh-vuln-host-cve-impact-latest`
+
+Panels:
+
+- `Dangerous CVEs Impacting This System`
+- `Hosts Affected by Dangerous CVEs`
+
+Filters:
+
+- CVE summary table: `affected_hosts_count >= 1`
+- query: `patch_decision:patch_now or patch_decision:needs_review or kev:true or public_poc:true or epss_score >= 0.7`
+
+This is the broad overview row. Keep it near the top so you can immediately see every CVE with a strong risk signal that is currently impacting at least one host. The stricter rows below split those CVEs into operational buckets.
 
 ### Critical Real Impact
 
@@ -167,6 +188,7 @@ Data view: `wazuh-vuln-host-cve-impact-latest`
 
 The host tables mirror the operational groups:
 
+- `Hosts Affected by Dangerous CVEs`
 - `Hosts - Critical Real Impact`
 - `Hosts - Needs Review`
 - `Hosts - Patch Scheduled`
