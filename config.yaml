@@ -115,7 +115,7 @@ UBUNTU_OVAL:
   # true = also keep OSV binary package records, but only for CVE/package pairs
   # currently seen in Wazuh findings. This gives precise binary fixed versions
   # without loading the whole OSV binary package universe into RAM.
-  osv_include_binary_packages: false
+  osv_include_binary_packages: true
   releases:
     - noble   # Ubuntu 24.04
     - jammy   # Ubuntu 22.04

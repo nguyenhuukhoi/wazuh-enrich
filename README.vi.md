@@ -265,7 +265,7 @@ Ubuntu verification dùng Canonical Ubuntu OVAL và Ubuntu OSV.
 - OSV mirror dữ liệu Ubuntu Security Tracker và có cả CVE/package đã biết bị ảnh hưởng dù chưa có security update.
 - Service tải feed theo batch, cache local, không gọi Canonical theo từng CVE hoặc từng agent.
 
-Giữ `osv_include_binary_packages: false` nếu muốn footprint RAM thấp nhất. Nếu bật `true`, service vẫn không load toàn bộ OSV binary package records. Nó đọc current Wazuh findings trước, rồi chỉ giữ OSV binary records match với CVE/package đang thật sự ảnh hưởng hệ thống. Kernel findings vẫn match qua source package mapping (`linux-image-*` -> `linux`) ngay cả khi option này là `false`.
+`osv_include_binary_packages: true` là mặc định để enrich fixed version theo binary package chính xác hơn. Service vẫn không load toàn bộ OSV binary package records. Nó đọc current Wazuh findings trước, rồi chỉ giữ OSV binary records match với CVE/package đang thật sự ảnh hưởng hệ thống. Chỉ set `false` khi muốn footprint RAM thấp nhất; kernel findings vẫn match qua source package mapping (`linux-image-*` -> `linux`).
 
 Field được ghi thêm:
 
