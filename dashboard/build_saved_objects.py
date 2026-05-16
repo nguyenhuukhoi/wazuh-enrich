@@ -347,22 +347,22 @@ def dashboard_object() -> dict[str, Any]:
     add("vis-impact-controls", "visualization", 0, 0, 48, 8)
     add("search-critical-real-impact", "search", 0, 8, 48, 14)
     add("search-critical-real-impact-hosts", "search", 0, 22, 48, 14)
-    add("search-needs-review", "search", 0, 36, 48, 14)
-    add("search-needs-review-hosts", "search", 0, 50, 48, 14)
-    add("search-patch-scheduled", "search", 0, 64, 48, 14)
-    add("search-patch-scheduled-hosts", "search", 0, 78, 48, 14)
-    add("search-mitigated-hosts", "search", 0, 92, 48, 14)
+    add("search-mitigated-hosts", "search", 0, 36, 48, 14)
+    add("search-needs-review", "search", 0, 50, 48, 14)
+    add("search-needs-review-hosts", "search", 0, 64, 48, 14)
+    add("search-patch-scheduled", "search", 0, 78, 48, 14)
+    add("search-patch-scheduled-hosts", "search", 0, 92, 48, 14)
 
     references = []
     panel_ids = [
         ("vis-impact-controls", "visualization"),
         ("search-critical-real-impact", "search"),
         ("search-critical-real-impact-hosts", "search"),
+        ("search-mitigated-hosts", "search"),
         ("search-needs-review", "search"),
         ("search-needs-review-hosts", "search"),
         ("search-patch-scheduled", "search"),
         ("search-patch-scheduled-hosts", "search"),
-        ("search-mitigated-hosts", "search"),
     ]
     for index, (panel_id, panel_type) in enumerate(panel_ids, start=1):
         references.append({"name": f"panel_{index}", "type": panel_type, "id": panel_id})

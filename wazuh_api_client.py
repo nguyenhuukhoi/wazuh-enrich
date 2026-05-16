@@ -104,7 +104,11 @@ class WazuhManagerApiClient:
             if not agent_id:
                 continue
             agent_name = str(agent.get("agent_name") or agent.get("name") or "")
-            policies = list(self.iter_items(f"/sca/{agent_id}"))
+            try:
+                policies = list(self.iter_items(f"/sca/{agent_id}"))
+            except Exception as exc:
+                LOG.warning("wazuh_api_sca_policies_failed agent_id=%s error=%s", agent_id, exc)
+                continue
             selected_policies = [policy for policy in policies if _matches_policy(policy, policy_query)]
             for policy in selected_policies:
                 policy_id = _policy_id(policy)

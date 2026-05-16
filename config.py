@@ -61,6 +61,7 @@ class Settings:
     workaround_feed_file: Path | None
     workaround_result_file: Path | None
     workaround_verification_priority: str
+    alert_bypass_file: Path | None
     telegram_bot_token: str
     telegram_chat_id: str
     alert_thresholds: dict[str, Any]
@@ -109,6 +110,8 @@ def load_config(path: str = "config.yaml") -> Settings:
     state_file = Path(cfg["STATE_FILE"])
     cache_dir.mkdir(parents=True, exist_ok=True)
     state_file.parent.mkdir(parents=True, exist_ok=True)
+    alert_bypass_file = _optional_path(cfg.get("ALERT_BYPASS_FILE"), config_path.parent)
+    alert_thresholds = _load_alert_thresholds(cfg["ALERT_THRESHOLDS"], alert_bypass_file)
 
     return Settings(
         wazuh_indexer_url=cfg["WAZUH_INDEXER_URL"].rstrip("/"),
@@ -162,9 +165,10 @@ def load_config(path: str = "config.yaml") -> Settings:
         workaround_verification_priority=_normalize_workaround_priority(
             cfg.get("WORKAROUND_VERIFICATION_PRIORITY", "sca_first")
         ),
+        alert_bypass_file=alert_bypass_file,
         telegram_bot_token=cfg.get("TELEGRAM_BOT_TOKEN", ""),
         telegram_chat_id=cfg.get("TELEGRAM_CHAT_ID", ""),
-        alert_thresholds=cfg["ALERT_THRESHOLDS"],
+        alert_thresholds=alert_thresholds,
         schedule={key: int(val) for key, val in cfg.get("SCHEDULE", {}).items()},
         sca_sync=_normalize_sca_sync(cfg.get("SCA_SYNC", {})),
         poc_build=_normalize_poc_build(cfg.get("POC_BUILD", {})),
@@ -183,6 +187,36 @@ def _normalize_poc_build(raw: dict[str, Any]) -> dict[str, Any]:
         if cfg.get(key) in ("", None):
             cfg[key] = None
     return cfg
+
+
+def _optional_path(value: Any, base_dir: Path) -> Path | None:
+    if value in (None, ""):
+        return None
+    path = Path(str(value))
+    return path if path.is_absolute() else base_dir / path
+
+
+def _load_alert_thresholds(raw_thresholds: dict[str, Any], bypass_file: Path | None) -> dict[str, Any]:
+    thresholds = dict(raw_thresholds or {})
+    if not bypass_file or not bypass_file.exists():
+        return thresholds
+
+    with bypass_file.open("r", encoding="utf-8") as handle:
+        raw_bypass = _expand_env(yaml.safe_load(handle) or {})
+
+    if isinstance(raw_bypass, list):
+        muted_alerts = raw_bypass
+    elif isinstance(raw_bypass, dict):
+        muted_alerts = raw_bypass.get("muted_alerts") or raw_bypass.get("bypass_alerts") or []
+    else:
+        muted_alerts = []
+
+    if muted_alerts:
+        thresholds["muted_alerts"] = [
+            *(thresholds.get("muted_alerts") or []),
+            *muted_alerts,
+        ]
+    return thresholds
 
 
 def _normalize_sca_sync(raw: dict[str, Any]) -> dict[str, Any]:

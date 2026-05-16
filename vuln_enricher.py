@@ -6,6 +6,7 @@ import logging
 import signal
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -87,15 +88,46 @@ def replace_latest_indices(
     host_cve_impacts: list[dict[str, Any]],
 ) -> dict[str, str]:
     indices = latest_indices(settings)
-    client.delete_by_query(indices["enriched_index"], {"match_all": {}})
-    client.bulk_index(indices["enriched_index"], enriched_docs, ["cve_id", "agent_id", "package_name", "package_version"])
-    client.delete_by_query(indices["cve_summary_index"], {"match_all": {}})
-    client.bulk_index(indices["cve_summary_index"], cve_summaries, ["cve_id"])
-    client.delete_by_query(indices["host_summary_index"], {"match_all": {}})
-    client.bulk_index(indices["host_summary_index"], host_summaries, ["agent_id"])
-    client.delete_by_query(indices["host_cve_impact_index"], {"match_all": {}})
-    client.bulk_index(indices["host_cve_impact_index"], host_cve_impacts, ["cve_id", "agent_id"])
+    snapshot_id = latest_snapshot_id()
+    replace_latest_index(
+        client,
+        indices["enriched_index"],
+        enriched_docs,
+        ["cve_id", "agent_id", "package_name", "package_version"],
+        snapshot_id,
+    )
+    replace_latest_index(client, indices["cve_summary_index"], cve_summaries, ["cve_id"], snapshot_id)
+    replace_latest_index(client, indices["host_summary_index"], host_summaries, ["agent_id"], snapshot_id)
+    replace_latest_index(client, indices["host_cve_impact_index"], host_cve_impacts, ["cve_id", "agent_id"], snapshot_id)
     return indices
+
+
+def latest_snapshot_id() -> str:
+    return f"{datetime.now(timezone.utc).isoformat()}|{uuid.uuid4().hex}"
+
+
+def snapshot_docs(docs: list[dict[str, Any]], snapshot_id: str) -> list[dict[str, Any]]:
+    return [{**doc, "latest_snapshot_id": snapshot_id} for doc in docs]
+
+
+def bulk_index_or_raise(client: WazuhIndexerClient, index: str, docs: list[dict[str, Any]], id_fields: list[str]) -> None:
+    _success, errors = client.bulk_index(index, docs, id_fields)
+    if errors:
+        raise RuntimeError(f"bulk indexing failed for {index}: errors={errors}")
+
+
+def replace_latest_index(
+    client: WazuhIndexerClient,
+    index: str,
+    docs: list[dict[str, Any]],
+    id_fields: list[str],
+    snapshot_id: str,
+) -> None:
+    if not docs:
+        client.delete_by_query(index, {"match_all": {}})
+        return
+    bulk_index_or_raise(client, index, snapshot_docs(docs, snapshot_id), id_fields)
+    client.delete_by_query(index, {"bool": {"must_not": {"term": {"latest_snapshot_id": snapshot_id}}}})
 
 
 def enriched_finding_key(doc: dict[str, Any]) -> str:
@@ -340,9 +372,8 @@ def sync_sca_results(settings: Settings, client: WazuhIndexerClient) -> dict[str
     index = client.index_name(str(settings.sca_sync.get("output_index_prefix", "wazuh-enrich-sca-results")))
     latest = sca_latest_index(settings)
     client.ensure_templates()
-    client.bulk_index(index, docs, ["agent.id", "policy.id", "check.id"])
-    client.delete_by_query(latest, {"match_all": {}})
-    client.bulk_index(latest, docs, ["agent.id", "policy.id", "check.id"])
+    bulk_index_or_raise(client, index, docs, ["agent.id", "policy.id", "check.id"])
+    replace_latest_index(client, latest, docs, ["agent.id", "policy.id", "check.id"], latest_snapshot_id())
     result = {"enabled": True, "agents": len(agents), "docs": len(docs), "index": index, "latest_index": latest}
     LOG.info("sca_sync_done %s", json.dumps(result, sort_keys=True))
     return result
@@ -654,19 +685,31 @@ def detect_new_agents(
             continue
         new_agents += 1
         enriched_docs = []
+        malformed = 0
         for source in client.iter_vulnerability_findings(agent_id=agent_id):
-            doc = normalize_finding(
-                source,
-                kev_cves,
-                epss_records,
-                poc_records,
-                agent_metadata,
-                ubuntu_records,
-                ubuntu_osv_records,
-                mitigation_records,
-            )
-            if doc:
-                enriched_docs.append(doc)
+            try:
+                doc = normalize_finding(
+                    source,
+                    kev_cves,
+                    epss_records,
+                    poc_records,
+                    agent_metadata,
+                    ubuntu_records,
+                    ubuntu_osv_records,
+                    mitigation_records,
+                )
+                if doc:
+                    enriched_docs.append(doc)
+                else:
+                    malformed += 1
+            except Exception as exc:
+                malformed += 1
+                LOG.warning(
+                    "new_agent_finding_enrich_failed agent_id=%s error=%s source_id=%s",
+                    agent_id,
+                    exc,
+                    source.get("_wazuh_source_id"),
+                )
 
         report = {
             "agent_id": agent_id,
@@ -677,6 +720,7 @@ def detect_new_agents(
             "p0_count": len([doc for doc in enriched_docs if doc["priority"] == "P0"]),
             "p1_count": len([doc for doc in enriched_docs if doc["priority"] == "P1"]),
             "kev_count": len([doc for doc in enriched_docs if doc["kev"]]),
+            "malformed": malformed,
             "top_findings": sorted(enriched_docs, key=lambda doc: doc["risk_score"], reverse=True)[:25],
         }
         if not dry_run:

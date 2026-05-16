@@ -20,6 +20,7 @@ PATCH_DECISION_ORDER = {
     "no_action": 6,
 }
 ALERT_SCOPES = {"critical_real_impact", "needs_review", "patch_scheduled", "all"}
+HOST_MATCH_FIELDS = {"agent_id", "agent_name", "agent_ip", "host"}
 
 
 def as_bool(value: Any) -> bool:
@@ -35,6 +36,14 @@ def as_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def normalize_cve_id(value: Any) -> str:
+    return str(value or "").strip().upper()
+
+
+def normalize_match_value(value: Any) -> str:
+    return str(value or "").strip().lower()
 
 
 def finding_dedup_key(doc: dict[str, Any]) -> str:
@@ -72,26 +81,39 @@ class AlertManager:
         if self.alert_scope not in ALERT_SCOPES:
             LOG.warning("invalid_alert_scope scope=%s fallback=critical_real_impact", self.alert_scope)
             self.alert_scope = "critical_real_impact"
+        self.muted_alerts = self._parse_muted_alerts(thresholds)
 
     def process_cycle(self, enriched_docs: list[dict[str, Any]], cve_summaries: list[dict[str, Any]]) -> None:
         if self._cycle_alert_throttled():
             return
-        interesting = self._new_interesting_cves(cve_summaries)
+        alert_docs, alert_summaries = self._alert_inputs(enriched_docs, cve_summaries)
+        alert_state_backup = {
+            "alert_dedup_keys": dict(self.state.data.get("alert_dedup_keys", {})),
+            "last_kev_status_by_cve": dict(self.state.data.get("last_kev_status_by_cve", {})),
+            "last_epss_threshold_by_cve": dict(self.state.data.get("last_epss_threshold_by_cve", {})),
+        }
+        interesting = self._new_interesting_cves(alert_summaries)
+        delivered = True
         if interesting:
-            self.send_message(self._format_critical_alert(interesting, enriched_docs))
-            self.state.mark_alert_type_sent("cycle")
+            if self.send_message(self._format_critical_alert(interesting, alert_docs)) is not False:
+                self.state.mark_alert_type_sent("cycle")
+            else:
+                delivered = False
+                self.state.data.update(alert_state_backup)
 
-        for doc in enriched_docs:
-            if doc.get("priority") in {"P0", "P1"}:
-                key = f"finding|{finding_dedup_key(doc)}"
-                if not self.state.was_alert_sent(key):
-                    self.state.mark_alert_sent(key)
+        if delivered:
+            for doc in alert_docs:
+                if doc.get("priority") in {"P0", "P1"}:
+                    key = f"finding|{finding_dedup_key(doc)}"
+                    if not self.state.was_alert_sent(key):
+                        self.state.mark_alert_sent(key)
 
     def process_new_agent_baseline(self, agent_id: str, agent_name: str, enriched_docs: list[dict[str, Any]]) -> None:
         epss_high = float(self.thresholds.get("epss_high", 0.7))
+        alert_docs = self._filter_muted_docs(enriched_docs)
         cve_summaries = [
             cve
-            for cve in build_cve_summary(enriched_docs)
+            for cve in build_cve_summary(alert_docs)
             if self._scope_matches(cve, epss_high) and (not self.public_poc_only or cve.get("public_poc"))
         ]
         if not cve_summaries:
@@ -108,13 +130,101 @@ class AlertManager:
                 -float(doc.get("risk_score", 0.0)),
             ),
         )
-        self.send_message(
+        sent = self.send_message(
             self._format_critical_alert(
                 cve_summaries,
-                enriched_docs,
+                alert_docs,
                 extra_summary_lines=[f"- New agent baseline: {agent_id} {agent_name}".rstrip()],
             )
         )
+        if sent is False and not self.send_all_alerts:
+            self.state.data.setdefault("alert_dedup_keys", {}).pop(key, None)
+
+    @staticmethod
+    def _parse_muted_alerts(thresholds: dict[str, Any]) -> list[dict[str, str]]:
+        raw_items: list[Any] = []
+        for key in ("muted_alerts", "suppress_alerts", "suppressed_alerts"):
+            value = thresholds.get(key)
+            if isinstance(value, list):
+                raw_items.extend(value)
+        for cve in thresholds.get("muted_cves", []) or []:
+            raw_items.append({"cve_id": cve})
+
+        rules = []
+        for item in raw_items:
+            if isinstance(item, str):
+                item = {"cve_id": item}
+            if not isinstance(item, dict):
+                continue
+            cve_id = normalize_cve_id(item.get("cve_id") or item.get("cve"))
+            if not cve_id:
+                continue
+            rule = {"cve_id": cve_id}
+            for field in HOST_MATCH_FIELDS:
+                value = normalize_match_value(item.get(field))
+                if value:
+                    rule[field] = value
+            rules.append(rule)
+        return rules
+
+    def _alert_inputs(
+        self,
+        enriched_docs: list[dict[str, Any]],
+        cve_summaries: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        if not self.muted_alerts:
+            return enriched_docs, cve_summaries
+
+        filtered_summaries = [cve for cve in cve_summaries if not self._is_cve_globally_muted(cve)]
+        if not enriched_docs:
+            return enriched_docs, filtered_summaries
+
+        filtered_docs = self._filter_muted_docs(enriched_docs)
+        if len(filtered_docs) != len(enriched_docs):
+            return filtered_docs, build_cve_summary(filtered_docs)
+        return filtered_docs, filtered_summaries
+
+    def _filter_muted_docs(self, docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not self.muted_alerts:
+            return docs
+        return [doc for doc in docs if not self._is_doc_muted(doc)]
+
+    def _is_cve_globally_muted(self, cve: dict[str, Any]) -> bool:
+        cve_id = normalize_cve_id(cve.get("cve_id"))
+        return any(rule["cve_id"] == cve_id and not self._rule_has_host_scope(rule) for rule in self.muted_alerts)
+
+    def _is_doc_muted(self, doc: dict[str, Any]) -> bool:
+        cve_id = normalize_cve_id(doc.get("cve_id"))
+        for rule in self.muted_alerts:
+            if rule["cve_id"] != cve_id:
+                continue
+            if not self._rule_has_host_scope(rule):
+                return True
+            if self._host_rule_matches(rule, doc):
+                return True
+        return False
+
+    @staticmethod
+    def _rule_has_host_scope(rule: dict[str, str]) -> bool:
+        return any(field in rule for field in HOST_MATCH_FIELDS)
+
+    @staticmethod
+    def _host_rule_matches(rule: dict[str, str], doc: dict[str, Any]) -> bool:
+        if "agent_id" in rule and normalize_match_value(doc.get("agent_id")) != rule["agent_id"]:
+            return False
+        if "agent_name" in rule and normalize_match_value(doc.get("agent_name")) != rule["agent_name"]:
+            return False
+        if "agent_ip" in rule and normalize_match_value(doc.get("agent_ip")) != rule["agent_ip"]:
+            return False
+        if "host" in rule:
+            host_values = {
+                normalize_match_value(doc.get("agent_id")),
+                normalize_match_value(doc.get("agent_name")),
+                normalize_match_value(doc.get("agent_ip")),
+                normalize_match_value(doc.get("impact_host")),
+            }
+            return rule["host"] in host_values
+        return True
 
     def _cycle_alert_throttled(self) -> bool:
         if self.alert_interval_seconds <= 0:
@@ -288,16 +398,16 @@ class AlertManager:
             f"| package={doc.get('package_name', '-')}"
         )
 
-    def send_message(self, message: str) -> None:
+    def send_message(self, message: str) -> bool:
         if self.dry_run:
             print("\n=== DRY RUN ALERT ===", file=sys.stderr)
             print(message, file=sys.stderr)
             print("=== END DRY RUN ALERT ===\n", file=sys.stderr)
             LOG.info("dry_run_alert rendered=true")
-            return
+            return True
         if not self.bot_token or not self.chat_id:
             LOG.warning("telegram_not_configured alert_skipped=true")
-            return
+            return False
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         response = requests.post(
             url,
@@ -305,3 +415,4 @@ class AlertManager:
             timeout=self.timeout,
         )
         response.raise_for_status()
+        return True

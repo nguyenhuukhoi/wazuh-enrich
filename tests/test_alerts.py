@@ -72,6 +72,39 @@ def test_alert_dedup_for_same_cve(tmp_path):
     assert "action=Patch now." in manager.messages[0]
 
 
+def test_alert_not_marked_when_delivery_is_not_configured(tmp_path):
+    state = StateStore(tmp_path / "state.json")
+    manager = AlertManager(
+        bot_token="",
+        chat_id="",
+        thresholds={"epss_high": 0.7, "cve_many_agents": 25, "max_top_cves": 10},
+        state=state,
+    )
+    cve_summary = [
+        {
+            "cve_id": "CVE-2025-0001",
+            "priority": "P0",
+            "kev": True,
+            "epss_score": 0.94,
+            "cvss_score": 9.8,
+            "affected_hosts_count": 1,
+            "affected_packages": ["openssl"],
+            "public_poc": False,
+            "patch_decision": "patch_now",
+            "verification_status": "confirmed_affected",
+            "exploitability_status": "exploited_in_wild",
+            "fix_available": True,
+            "recommended_action": "Patch now.",
+            "risk_score": 106.4,
+        }
+    ]
+
+    manager.process_cycle([{"cve_id": "CVE-2025-0001", "agent_id": "001", "priority": "P0"}], cve_summary)
+
+    assert state.data["alert_dedup_keys"] == {}
+    assert state.data["last_alert_sent_by_type"] == {}
+
+
 def test_alert_summary_fallback_names_host_cve_pairs(tmp_path):
     state = StateStore(tmp_path / "state.json")
     manager = CapturingAlertManager(
@@ -317,6 +350,100 @@ def test_public_poc_only_filters_alert_cves(tmp_path):
     assert "CVE-2026-POC" in manager.messages[0]
     assert "CVE-2026-NOPOC" not in manager.messages[0]
     assert "- Public PoC CVEs: 1" in manager.messages[0]
+
+
+def test_muted_alerts_can_suppress_whole_cve(tmp_path):
+    state = StateStore(tmp_path / "state.json")
+    manager = CapturingAlertManager(
+        bot_token="",
+        chat_id="",
+        thresholds={
+            "send_all_alerts": True,
+            "alert_scope": "all",
+            "muted_alerts": [{"cve_id": "CVE-2026-MUTE"}],
+        },
+        state=state,
+    )
+    cve_summary = [
+        {
+            "cve_id": "CVE-2026-MUTE",
+            "priority": "P0",
+            "kev": True,
+            "public_poc": False,
+            "epss_score": 0.1,
+            "cvss_score": 7.8,
+            "affected_hosts_count": 2,
+            "affected_packages": ["kernel"],
+            "patch_decision": "patch_now",
+            "verification_status": "confirmed_affected",
+            "exploitability_status": "exploited_in_wild",
+            "risk_score": 80,
+        }
+    ]
+
+    manager.process_cycle(
+        [
+            {"cve_id": "CVE-2026-MUTE", "agent_id": "001", "priority": "P0"},
+            {"cve_id": "CVE-2026-MUTE", "agent_id": "002", "priority": "P0"},
+        ],
+        cve_summary,
+    )
+
+    assert manager.messages == []
+
+
+def test_muted_alerts_can_suppress_cve_for_one_host_only(tmp_path):
+    state = StateStore(tmp_path / "state.json")
+    manager = CapturingAlertManager(
+        bot_token="",
+        chat_id="",
+        thresholds={
+            "send_all_alerts": True,
+            "alert_scope": "critical_real_impact",
+            "muted_alerts": [{"cve_id": "CVE-2026-HOST", "agent_id": "001"}],
+        },
+        state=state,
+    )
+    docs = [
+        {
+            "cve_id": "CVE-2026-HOST",
+            "priority": "P0",
+            "agent_id": "001",
+            "agent_name": "muted-host",
+            "package_name": "kernel",
+            "kev": True,
+            "public_poc": False,
+            "epss_score": 0.1,
+            "cvss_score": 7.8,
+            "patch_decision": "patch_now",
+            "verification_status": "confirmed_affected",
+            "exploitability_status": "exploited_in_wild",
+            "fix_available": True,
+            "risk_score": 80,
+        },
+        {
+            "cve_id": "CVE-2026-HOST",
+            "priority": "P0",
+            "agent_id": "002",
+            "agent_name": "active-host",
+            "package_name": "kernel",
+            "kev": True,
+            "public_poc": False,
+            "epss_score": 0.1,
+            "cvss_score": 7.8,
+            "patch_decision": "patch_now",
+            "verification_status": "confirmed_affected",
+            "exploitability_status": "exploited_in_wild",
+            "fix_available": True,
+            "risk_score": 80,
+        },
+    ]
+
+    manager.process_cycle(docs, [])
+
+    assert len(manager.messages) == 1
+    assert "CVE-2026-HOST" in manager.messages[0]
+    assert "- Affected agents: 1" in manager.messages[0]
 
 
 def test_max_top_cves_zero_includes_all_cves(tmp_path):

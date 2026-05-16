@@ -738,6 +738,7 @@ ALERT_THRESHOLDS:
   send_all_impacted_cves: false
   send_all_alerts: false
   public_poc_only: false
+  muted_alerts: []
   alert_interval_seconds: 0
   max_top_cves: 10
 ```
@@ -782,6 +783,35 @@ ALERT_THRESHOLDS:
   alert_interval_seconds: 3600
   max_top_cves: 0
 ```
+
+Use `ALERT_BYPASS_FILE` when you want to silence Telegram alerts for one or more CVEs without editing the main `config.yaml`. This only affects alert delivery; enriched indices and dashboards still keep the CVE data.
+
+In `config.yaml`:
+
+```yaml
+ALERT_BYPASS_FILE: /etc/wazuh-enrich/alert_bypass.yaml
+```
+
+Create `/etc/wazuh-enrich/alert_bypass.yaml`:
+
+```yaml
+muted_alerts:
+  # Mute a CVE everywhere.
+  - cve_id: CVE-2026-31431
+    reason: accepted temporarily during maintenance
+```
+
+Mute a CVE only on one host. Other hosts affected by the same CVE can still alert:
+
+```yaml
+muted_alerts:
+  - cve_id: CVE-2026-31431
+    agent_id: "004"
+  - cve_id: CVE-2025-48384
+    host: 8.83.8.11
+```
+
+Supported host match fields are `agent_id`, `agent_name`, `agent_ip`, and `host`. The `host` shortcut matches agent ID, agent name, agent IP, or impact host.
 
 `alert_interval_seconds` is the minimum gap between two aggregate cycle alerts. It only applies to the normal cycle alert from `process_cycle`; new-agent baseline alerts are still checked immediately when detected, but they use the same `alert_scope` logic and alert format as the cycle alert. The first eligible alert after service start is sent immediately if `STATE_FILE` has no previous `last_alert_sent_by_type.cycle`. If the service is restarted and the previous cycle alert is still inside the interval window, the restart will not spam Telegram.
 

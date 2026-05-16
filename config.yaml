@@ -65,6 +65,9 @@ WORKAROUND_RESULT_FILE: /var/lib/wazuh-enrich/feeds/workaround_results.json
 # sca_first keeps the old behavior: SCA overrides Ansible.
 # ansible_first lets Ansible override SCA.
 WORKAROUND_VERIFICATION_PRIORITY: sca_first
+# Optional alert bypass/mute file. This file can be edited independently from
+# config.yaml to silence noisy accepted-risk CVEs without affecting dashboards.
+ALERT_BYPASS_FILE: /etc/wazuh-enrich/alert_bypass.yaml
 
 # Optional workaround collector. It searches vendor pages for workaround
 # candidates and writes WORKAROUND_FEED_FILE. Keep review_status=needs_review
@@ -137,6 +140,8 @@ ALERT_THRESHOLDS:
   send_all_alerts: false
   # true = only alert CVEs that currently impact the system and have public PoC metadata.
   public_poc_only: false
+  # Inline mute list kept for quick tests. In production prefer ALERT_BYPASS_FILE.
+  muted_alerts: []
   # How often Telegram may resend the same aggregate cycle alert.
   # 0 = no time limit.
   # If send_all_alerts is true, Telegram can send again every enrichment cycle.

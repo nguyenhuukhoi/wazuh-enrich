@@ -449,6 +449,7 @@ class FeedSync:
         self.poc_cache = cache_dir / "cve_poc.csv"
         self.ubuntu_cache_dir = cache_dir / "ubuntu-oval"
         self.ubuntu_osv_cache = cache_dir / "ubuntu-osv" / "osv-all.tar.xz"
+        self.ubuntu_osv_parsed_cache = cache_dir / "ubuntu-osv" / "osv-parsed.json"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.ubuntu_cache_dir.mkdir(parents=True, exist_ok=True)
         self.ubuntu_osv_cache.parent.mkdir(parents=True, exist_ok=True)
@@ -552,7 +553,13 @@ class FeedSync:
             return {}
         if not self.ubuntu_osv_cache.exists():
             return {}
-        return parse_ubuntu_osv(self.ubuntu_osv_cache.read_bytes(), source_url=self._ubuntu_osv_url())
+        source_hash = self._file_sha256(self.ubuntu_osv_cache)
+        cached = self._load_parsed_ubuntu_osv(source_hash)
+        if cached is not None:
+            return cached
+        records = parse_ubuntu_osv(self.ubuntu_osv_cache.read_bytes(), source_url=self._ubuntu_osv_url())
+        self._write_parsed_ubuntu_osv(source_hash, records)
+        return records
 
     def sync_all(self, force: bool = False) -> tuple[set[str], dict[str, EpssRecord], dict[str, PocRecord]]:
         self.sync_ubuntu_oval(force=force)
@@ -616,6 +623,48 @@ class FeedSync:
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_bytes(payload)
         tmp.replace(path)
+
+    def _load_parsed_ubuntu_osv(self, source_hash: str | None) -> dict[tuple[str, str, str], UbuntuOsvRecord] | None:
+        if not source_hash or not self.ubuntu_osv_parsed_cache.exists():
+            return None
+        try:
+            payload = json.loads(self.ubuntu_osv_parsed_cache.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            LOG.warning("ubuntu_osv_parsed_cache_load_failed path=%s error=%s", self.ubuntu_osv_parsed_cache, exc)
+            return None
+        if payload.get("source_sha256") != source_hash:
+            return None
+        records: dict[tuple[str, str, str], UbuntuOsvRecord] = {}
+        for item in payload.get("records", []):
+            if not isinstance(item, dict):
+                continue
+            try:
+                record = UbuntuOsvRecord(**item)
+            except TypeError:
+                continue
+            records[(record.release, record.cve_id, record.package_name)] = record
+        LOG.info("ubuntu_osv_parsed_cache_loaded records=%s", len(records))
+        return records
+
+    def _write_parsed_ubuntu_osv(
+        self,
+        source_hash: str | None,
+        records: dict[tuple[str, str, str], UbuntuOsvRecord],
+    ) -> None:
+        if not source_hash:
+            return
+        payload = {
+            "source_sha256": source_hash,
+            "records": [record.__dict__ for record in records.values()],
+        }
+        try:
+            self._atomic_write(
+                self.ubuntu_osv_parsed_cache,
+                json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8"),
+            )
+            LOG.info("ubuntu_osv_parsed_cache_written records=%s", len(records))
+        except OSError as exc:
+            LOG.warning("ubuntu_osv_parsed_cache_write_failed path=%s error=%s", self.ubuntu_osv_parsed_cache, exc)
 
     @staticmethod
     def _fresh(path: Path, max_age: timedelta) -> bool:

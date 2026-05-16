@@ -704,6 +704,7 @@ ALERT_THRESHOLDS:
   send_all_impacted_cves: false
   send_all_alerts: false
   public_poc_only: false
+  muted_alerts: []
   alert_interval_seconds: 0
   max_top_cves: 10
 ```
@@ -750,6 +751,35 @@ ALERT_THRESHOLDS:
   alert_interval_seconds: 3600
   max_top_cves: 0
 ```
+
+Dung `ALERT_BYPASS_FILE` khi ban muon tat Telegram alert cho mot hoac nhieu CVE ma khong can sua `config.yaml` chinh. Tuy chon nay chi tat alert, khong xoa data trong enriched index va dashboard.
+
+Trong `config.yaml`:
+
+```yaml
+ALERT_BYPASS_FILE: /etc/wazuh-enrich/alert_bypass.yaml
+```
+
+Tao file `/etc/wazuh-enrich/alert_bypass.yaml`:
+
+```yaml
+muted_alerts:
+  # Tat alert mot CVE tren tat ca host.
+  - cve_id: CVE-2026-31431
+    reason: accepted temporarily during maintenance
+```
+
+Tat alert mot CVE chi tren mot host. Neu CVE do van impact host khac thi van co the alert:
+
+```yaml
+muted_alerts:
+  - cve_id: CVE-2026-31431
+    agent_id: "004"
+  - cve_id: CVE-2025-48384
+    host: 8.83.8.11
+```
+
+Field host co the dung: `agent_id`, `agent_name`, `agent_ip`, va `host`. Shortcut `host` se match agent ID, agent name, agent IP, hoac impact host.
 
 `alert_interval_seconds` là khoảng cách tối thiểu giữa 2 lần aggregate cycle alert. Nó chỉ áp dụng cho alert cycle bình thường từ `process_cycle`; alert baseline của agent mới vẫn được check ngay khi detect, nhưng dùng cùng logic `alert_scope` và cùng format alert với cycle alert. Lần alert đầu tiên sau khi start service sẽ gửi ngay nếu `STATE_FILE` chưa có `last_alert_sent_by_type.cycle`. Nếu service restart và lần gửi cycle alert trước vẫn còn trong khoảng interval, service sẽ không spam Telegram sau restart.
 

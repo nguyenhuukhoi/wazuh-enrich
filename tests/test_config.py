@@ -6,6 +6,16 @@ from config import load_config
 def test_poc_build_output_becomes_poc_feed_file(tmp_path, monkeypatch):
     config_path = tmp_path / "config.yaml"
     output_file = tmp_path / "feeds" / "cve_poc.csv"
+    bypass_file = tmp_path / "feeds" / "alert_bypass.yaml"
+    bypass_file.parent.mkdir(parents=True, exist_ok=True)
+    bypass_file.write_text(
+        """
+muted_alerts:
+  - cve_id: CVE-2026-31431
+    agent_id: "004"
+""",
+        encoding="utf-8",
+    )
     config_path.write_text(
         f"""
 WAZUH_INDEXER_URL: https://127.0.0.1:9200
@@ -19,13 +29,16 @@ CACHE_DIR: {tmp_path / "cache"}
 STATE_FILE: {tmp_path / "cache" / "state.json"}
 PAGE_SIZE: 2000
 BULK_SIZE: 1000
-ALERT_THRESHOLDS: {{}}
 POC_BUILD:
   enabled: true
   output_file: {output_file}
 WORKAROUND_FEED_FILE: {tmp_path / "feeds" / "cve_workarounds.yaml"}
 WORKAROUND_RESULT_FILE: {tmp_path / "feeds" / "workaround_results.json"}
 WORKAROUND_VERIFICATION_PRIORITY: ansible_first
+ALERT_BYPASS_FILE: {bypass_file}
+ALERT_THRESHOLDS:
+  muted_alerts:
+    - cve_id: CVE-2025-0001
 WORKAROUND_COLLECTOR:
   enabled: true
   output_file: {tmp_path / "feeds" / "cve_workarounds.yaml"}
@@ -42,6 +55,11 @@ WORKAROUND_COLLECTOR:
     assert settings.workaround_feed_file == tmp_path / "feeds" / "cve_workarounds.yaml"
     assert settings.workaround_result_file == tmp_path / "feeds" / "workaround_results.json"
     assert settings.workaround_verification_priority == "ansible_first"
+    assert settings.alert_bypass_file == bypass_file
+    assert settings.alert_thresholds["muted_alerts"] == [
+        {"cve_id": "CVE-2025-0001"},
+        {"cve_id": "CVE-2026-31431", "agent_id": "004"},
+    ]
     assert settings.poc_build["enabled"] is True
     assert settings.workaround_collector["enabled"] is True
     assert settings.workaround_collector["output_file"] == str(tmp_path / "feeds" / "cve_workarounds.yaml")

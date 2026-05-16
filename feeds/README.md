@@ -59,3 +59,21 @@ Set:
 WORKAROUND_FEED_FILE: /var/lib/wazuh-enrich/feeds/cve_workarounds.yaml
 WORKAROUND_RESULT_FILE: /var/lib/wazuh-enrich/feeds/workaround_results.json
 ```
+
+## Alert Bypass File
+
+Use `alert_bypass.yaml` to silence Telegram alerts without removing the CVE from enriched indices or dashboards:
+
+```yaml
+ALERT_BYPASS_FILE: /etc/wazuh-enrich/alert_bypass.yaml
+```
+
+Example:
+
+```yaml
+muted_alerts:
+  - cve_id: CVE-2026-31431
+    reason: accepted temporarily during maintenance
+  - cve_id: CVE-2025-38352
+    agent_id: "004"
+```

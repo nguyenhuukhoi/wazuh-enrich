@@ -1,0 +1,51 @@
+# Wazuh Enrich alert bypass/mute rules.
+#
+# Suggested production path:
+#   /etc/wazuh-enrich/alert_bypass.yaml
+#
+# In config.yaml:
+#   ALERT_BYPASS_FILE: /etc/wazuh-enrich/alert_bypass.yaml
+#
+# Reload or restart wazuh-enrich after editing this file.
+#
+# These rules only silence Telegram alerts. Enriched indices and dashboards keep
+# the CVE data for audit and review.
+#
+# Supported host match fields:
+#   agent_id    Wazuh agent ID, for example "004"
+#   agent_name  Wazuh agent name, for example ubuntu-web-01
+#   agent_ip    Agent IP shown in enriched data
+#   host        Shortcut that matches agent_id, agent_name, agent_ip, or impact_host
+#
+# Optional metadata fields such as reason, owner, ticket, expires_at are kept for
+# human review. The app does not enforce expires_at yet.
+
+muted_alerts:
+  # Mute one CVE on every host.
+  - cve_id: CVE-2026-31431
+    reason: accepted temporarily during maintenance
+    owner: security
+    expires_at: 2026-06-30
+
+  # Mute one CVE only on a specific Wazuh agent.
+  - cve_id: CVE-2025-38352
+    agent_id: "004"
+    reason: patched by compensating control
+    owner: infra
+    ticket: SEC-1235
+    expires_at: 2026-05-31
+
+  # Mute one CVE only on a specific hostname.
+  - cve_id: CVE-2025-41244
+    agent_name: ubuntu-web-01
+    reason: lab host accepted temporarily
+
+  # Mute one CVE only on a specific IP.
+  - cve_id: CVE-2024-53104
+    agent_ip: 8.83.8.10
+    reason: host isolated from production network
+
+  # The host shortcut matches agent_id, agent_name, agent_ip, or impact_host.
+  - cve_id: CVE-2025-48384
+    host: 8.83.8.11
+    reason: false positive accepted after manual review

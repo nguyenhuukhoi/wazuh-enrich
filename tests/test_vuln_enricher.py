@@ -8,6 +8,7 @@ from vuln_enricher import (
     mark_daily_full_refresh,
     mark_startup_full_refresh,
     reconcile_resolved_latest_findings,
+    replace_latest_index,
     startup_full_refresh_required,
 )
 
@@ -56,6 +57,20 @@ class FakeReconcileClient:
         assert index == "wazuh-vuln-enriched-latest"
         self.deleted.extend(docs)
         return len(docs)
+
+
+class FakeLatestClient:
+    def __init__(self):
+        self.bulked = []
+        self.deleted = []
+
+    def bulk_index(self, index: str, docs: list[dict], id_fields: list[str]):
+        self.bulked.append((index, docs, id_fields))
+        return len(docs), 0
+
+    def delete_by_query(self, index: str, query: dict) -> int:
+        self.deleted.append((index, query))
+        return 1
 
 
 def test_daily_full_refresh_required_when_today_index_is_empty(tmp_path):
@@ -142,3 +157,24 @@ def test_reconcile_resolved_latest_findings_deletes_docs_missing_from_wazuh():
     assert result["stale_docs"] == 1
     assert result["deleted_latest_docs"] == 1
     assert client.deleted[0]["cve_id"] == "CVE-2026-0002"
+
+
+def test_replace_latest_index_bulk_then_deletes_stale_snapshot():
+    client = FakeLatestClient()
+
+    replace_latest_index(
+        client,
+        "wazuh-vuln-enriched-latest",
+        [{"cve_id": "CVE-2026-0001", "agent_id": "001"}],
+        ["cve_id", "agent_id"],
+        "snapshot-1",
+    )
+
+    assert client.bulked[0][0] == "wazuh-vuln-enriched-latest"
+    assert client.bulked[0][1][0]["latest_snapshot_id"] == "snapshot-1"
+    assert client.deleted == [
+        (
+            "wazuh-vuln-enriched-latest",
+            {"bool": {"must_not": {"term": {"latest_snapshot_id": "snapshot-1"}}}},
+        )
+    ]

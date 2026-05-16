@@ -86,6 +86,7 @@ class WazuhIndexerClient:
                 {
                     "cve_id": {"type": "keyword"},
                     "finding_key": {"type": "keyword"},
+                    "latest_snapshot_id": {"type": "keyword"},
                     "cve_year": {"type": "integer"},
                     "agent_id": {"type": "keyword"},
                     "agent_name": {"type": "keyword"},
@@ -102,9 +103,6 @@ class WazuhIndexerClient:
                     "epss_score": {"type": "float"},
                     "epss_percentile": {"type": "float"},
                     "public_poc": {"type": "boolean"},
-                    "impact_cve_id": IMPACT_FIELD_MAPPING,
-                    "impact_agent_id": IMPACT_FIELD_MAPPING,
-                    "impact_host": IMPACT_FIELD_MAPPING,
                     "poc_count": {"type": "integer"},
                     "poc_references": {"type": "keyword"},
                     "poc_sources": {"type": "keyword"},
@@ -145,6 +143,7 @@ class WazuhIndexerClient:
                 f"{self.settings.cve_summary_index_prefix}-*",
                 {
                     "cve_id": {"type": "keyword"},
+                    "latest_snapshot_id": {"type": "keyword"},
                     "cve_year": {"type": "integer"},
                     "priority": {"type": "keyword"},
                     "patch_decision": {"type": "keyword"},
@@ -189,6 +188,7 @@ class WazuhIndexerClient:
                 f"{self.settings.host_summary_index_prefix}-*",
                 {
                     "agent_id": {"type": "keyword"},
+                    "latest_snapshot_id": {"type": "keyword"},
                     "agent_name": {"type": "keyword"},
                     "agent_ip": {"type": "ip", "ignore_malformed": True},
                     "os_name": {"type": "keyword"},
@@ -214,6 +214,7 @@ class WazuhIndexerClient:
                 f"{self.settings.host_cve_impact_index_prefix}-*",
                 {
                     "cve_id": {"type": "keyword"},
+                    "latest_snapshot_id": {"type": "keyword"},
                     "impact_cve_id": IMPACT_FIELD_MAPPING,
                     "agent_id": {"type": "keyword"},
                     "impact_agent_id": IMPACT_FIELD_MAPPING,
@@ -267,6 +268,7 @@ class WazuhIndexerClient:
                 f"{self.settings.sca_sync.get('output_index_prefix', 'wazuh-enrich-sca-results')}-*",
                 {
                     "agent": {"properties": {"id": {"type": "keyword"}, "name": {"type": "keyword"}}},
+                    "latest_snapshot_id": {"type": "keyword"},
                     "policy": {
                         "properties": {
                             "id": {"type": "keyword"},
