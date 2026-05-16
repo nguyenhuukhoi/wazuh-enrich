@@ -132,7 +132,7 @@ def test_parse_ubuntu_oval_extracts_cve_package_and_fixed_version():
     assert record.advisory_url == "https://ubuntu.com/security/notices/USN-9999-1"
 
 
-def test_parse_ubuntu_osv_extracts_source_and_binary_packages():
+def test_parse_ubuntu_osv_extracts_source_packages_by_default():
     data = {
         "id": "UBUNTU-CVE-2026-0001",
         "upstream": ["CVE-2026-0001"],
@@ -160,7 +160,23 @@ def test_parse_ubuntu_osv_extracts_source_and_binary_packages():
     records = parse_ubuntu_osv(buffer.getvalue(), source_url="https://example/osv-all.tar.xz")
 
     source_record = records[("noble", "CVE-2026-0001", "linux")]
-    binary_record = records[("noble", "CVE-2026-0001", "linux-image-6.8.0-36-generic")]
     assert source_record.status == "affected_no_fixed_version"
+    assert ("noble", "CVE-2026-0001", "linux-image-6.8.0-36-generic") not in records
+
+    records_with_binaries = parse_ubuntu_osv(
+        buffer.getvalue(),
+        source_url="https://example/osv-all.tar.xz",
+        include_binary_packages=True,
+        binary_package_filter={("noble", "CVE-2026-0001", "linux-image-6.8.0-36-generic")},
+    )
+    binary_record = records_with_binaries[("noble", "CVE-2026-0001", "linux-image-6.8.0-36-generic")]
     assert binary_record.fixed_version == "6.8.0-100.100"
     assert binary_record.severity == "high"
+
+    records_with_unmatched_filter = parse_ubuntu_osv(
+        buffer.getvalue(),
+        source_url="https://example/osv-all.tar.xz",
+        include_binary_packages=True,
+        binary_package_filter={("noble", "CVE-2026-0001", "linux-image-9.9.9-99-generic")},
+    )
+    assert ("noble", "CVE-2026-0001", "linux-image-6.8.0-36-generic") not in records_with_unmatched_filter

@@ -14,7 +14,7 @@ from typing import Any
 from alerts import AlertManager
 from config import Settings, load_config
 from feed_sync import FeedSync
-from risk import finding_key, normalize_finding
+from risk import finding_key, first_path, normalize_finding, ubuntu_release_from_os
 from state import StateStore
 from summary import build_cve_summary, build_host_cve_impact_summary, build_host_summary, overview_metrics
 from tools.build_poc_feed import build_poc_feed
@@ -186,6 +186,7 @@ def request_reload(_signum: int, _frame: Any) -> None:
 def load_local_or_sync_feeds(
     settings: Settings,
     force: bool = False,
+    ubuntu_osv_binary_package_filter: set[tuple[str, str, str]] | None = None,
 ) -> tuple[
     set[str],
     dict[str, Any],
@@ -201,11 +202,59 @@ def load_local_or_sync_feeds(
         kev_file=settings.cisa_kev_file,
         poc_file=settings.poc_feed_file,
         ubuntu_oval=settings.ubuntu_oval,
+        ubuntu_osv_binary_package_filter=ubuntu_osv_binary_package_filter,
     )
     kev, epss, poc = feed_sync.sync_all(force=force)
     ubuntu = feed_sync.sync_ubuntu_oval(force=False)
     ubuntu_osv = feed_sync.sync_ubuntu_osv(force=False)
     return kev, epss, poc, ubuntu, ubuntu_osv
+
+
+def collect_ubuntu_osv_binary_package_filter(
+    settings: Settings,
+    client: WazuhIndexerClient,
+    agent_id: str | None = None,
+    since: str | None = None,
+) -> set[tuple[str, str, str]] | None:
+    if not settings.ubuntu_oval.get("osv_include_binary_packages"):
+        return None
+
+    targets: set[tuple[str, str, str]] = set()
+    configured_releases = {
+        str(release).strip()
+        for release in settings.ubuntu_oval.get("releases", [])
+        if str(release).strip()
+    }
+    for source in client.iter_vulnerability_findings(agent_id=agent_id, since=since):
+        targets.update(ubuntu_osv_targets_from_source(source, configured_releases))
+
+    LOG.info(
+        "ubuntu_osv_binary_targets_collected targets=%s agent_id=%s since=%s",
+        len(targets),
+        agent_id or "",
+        since or "",
+    )
+    return targets
+
+
+def ubuntu_osv_targets_from_source(
+    source: dict[str, Any],
+    configured_releases: set[str],
+) -> set[tuple[str, str, str]]:
+    cve_id = str(first_path(source, ["vulnerability.id", "vulnerability.cve"], "")).upper()
+    package_name = str(first_path(source, ["package.name"], ""))
+    if not cve_id.startswith("CVE-") or not package_name:
+        return set()
+
+    os_name = str(first_path(source, ["host.os.name", "agent.host.os.name", "host.os.full"], ""))
+    os_version = str(first_path(source, ["host.os.version", "agent.host.os.version"], ""))
+    release = ubuntu_release_from_os(os_name, os_version)
+    releases = {release} if release else configured_releases
+    return {
+        (candidate_release, cve_id, package_name)
+        for candidate_release in releases
+        if candidate_release
+    }
 
 
 def load_mitigation_records(settings: Settings, client: WazuhIndexerClient) -> dict[tuple[str, str], dict[str, Any]]:
@@ -227,7 +276,10 @@ def load_mitigation_records(settings: Settings, client: WazuhIndexerClient) -> d
     return records
 
 
-def build_feed_sync(settings: Settings) -> FeedSync:
+def build_feed_sync(
+    settings: Settings,
+    ubuntu_osv_binary_package_filter: set[tuple[str, str, str]] | None = None,
+) -> FeedSync:
     return FeedSync(
         cache_dir=settings.cache_dir,
         kev_url=settings.cisa_kev_url,
@@ -236,6 +288,7 @@ def build_feed_sync(settings: Settings) -> FeedSync:
         kev_file=settings.cisa_kev_file,
         poc_file=settings.poc_feed_file,
         ubuntu_oval=settings.ubuntu_oval,
+        ubuntu_osv_binary_package_filter=ubuntu_osv_binary_package_filter,
     )
 
 
@@ -399,8 +452,12 @@ def enrich(
     send_alerts: bool = True,
     dry_run_send_alerts: bool = False,
 ) -> dict[str, Any]:
-    kev_cves, epss_records, poc_records, ubuntu_records, ubuntu_osv_records = load_local_or_sync_feeds(settings)
     since = None if full or agent_id else state.data.get("last_processed_timestamp")
+    ubuntu_osv_filter = collect_ubuntu_osv_binary_package_filter(settings, client, agent_id=agent_id, since=since)
+    kev_cves, epss_records, poc_records, ubuntu_records, ubuntu_osv_records = load_local_or_sync_feeds(
+        settings,
+        ubuntu_osv_binary_package_filter=ubuntu_osv_filter,
+    )
     enriched_docs: list[dict[str, Any]] = []
     malformed = 0
     latest_detected_at: str | None = None
@@ -509,7 +566,11 @@ def enrich_agent_incremental(
     send_alerts: bool = True,
     dry_run_send_alerts: bool = False,
 ) -> dict[str, Any]:
-    kev_cves, epss_records, poc_records, ubuntu_records, ubuntu_osv_records = load_local_or_sync_feeds(settings)
+    ubuntu_osv_filter = collect_ubuntu_osv_binary_package_filter(settings, client, agent_id=agent_id)
+    kev_cves, epss_records, poc_records, ubuntu_records, ubuntu_osv_records = load_local_or_sync_feeds(
+        settings,
+        ubuntu_osv_binary_package_filter=ubuntu_osv_filter,
+    )
     enriched_index = client.index_name(settings.enriched_index_prefix)
     cve_summary_index = client.index_name(settings.cve_summary_index_prefix)
     host_summary_index = client.index_name(settings.host_summary_index_prefix)
@@ -664,7 +725,10 @@ def detect_new_agents(
     dry_run: bool = False,
     dry_run_send_alerts: bool = False,
 ) -> dict[str, int]:
-    kev_cves, epss_records, poc_records, ubuntu_records, ubuntu_osv_records = load_local_or_sync_feeds(settings)
+    kev_cves, epss_records, poc_records, ubuntu_records, ubuntu_osv_records = load_local_or_sync_feeds(
+        settings,
+        ubuntu_osv_binary_package_filter=set() if settings.ubuntu_oval.get("osv_include_binary_packages") else None,
+    )
     alerts = AlertManager(
         bot_token=settings.telegram_bot_token,
         chat_id=settings.telegram_chat_id,
@@ -684,9 +748,25 @@ def detect_new_agents(
         if state.is_agent_seen(agent_id):
             continue
         new_agents += 1
+        sources = list(client.iter_vulnerability_findings(agent_id=agent_id))
+        agent_osv_records = ubuntu_osv_records
+        if settings.ubuntu_oval.get("osv_include_binary_packages"):
+            configured_releases = {
+                str(release).strip()
+                for release in settings.ubuntu_oval.get("releases", [])
+                if str(release).strip()
+            }
+            agent_osv_filter = set()
+            for source in sources:
+                agent_osv_filter.update(ubuntu_osv_targets_from_source(source, configured_releases))
+            if agent_osv_filter:
+                agent_osv_records = build_feed_sync(
+                    settings,
+                    ubuntu_osv_binary_package_filter=agent_osv_filter,
+                ).sync_ubuntu_osv()
         enriched_docs = []
         malformed = 0
-        for source in client.iter_vulnerability_findings(agent_id=agent_id):
+        for source in sources:
             try:
                 doc = normalize_finding(
                     source,
@@ -695,7 +775,7 @@ def detect_new_agents(
                     poc_records,
                     agent_metadata,
                     ubuntu_records,
-                    ubuntu_osv_records,
+                    agent_osv_records,
                     mitigation_records,
                 )
                 if doc:

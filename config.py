@@ -262,6 +262,7 @@ def _normalize_ubuntu_oval(raw: dict[str, Any]) -> dict[str, Any]:
     cfg["osv_enabled"] = _as_bool(cfg.get("osv_enabled", cfg["enabled"]))
     cfg["osv_url"] = str(cfg.get("osv_url") or "https://security-metadata.canonical.com/osv/osv-all.tar.xz")
     cfg["osv_max_age_hours"] = int(cfg.get("osv_max_age_hours", cfg["max_age_hours"]) or cfg["max_age_hours"])
+    cfg["osv_include_binary_packages"] = _as_bool(cfg.get("osv_include_binary_packages", False))
     cfg["urls"] = cfg.get("urls", {}) or {}
     return cfg
 

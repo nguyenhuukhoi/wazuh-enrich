@@ -144,11 +144,24 @@ def parse_ubuntu_oval(payload: bytes | str, release: str, source_url: str = "") 
     return records
 
 
-def parse_ubuntu_osv(payload: bytes | str, source_url: str = "") -> dict[tuple[str, str, str], UbuntuOsvRecord]:
+def parse_ubuntu_osv(
+    payload: bytes | str,
+    source_url: str = "",
+    include_binary_packages: bool = False,
+    releases: set[str] | None = None,
+    binary_package_filter: set[tuple[str, str, str]] | None = None,
+) -> dict[tuple[str, str, str], UbuntuOsvRecord]:
     raw = payload if isinstance(payload, bytes) else payload.encode("utf-8")
     records: dict[tuple[str, str, str], UbuntuOsvRecord] = {}
     if raw.lstrip().startswith(b"{"):
-        _merge_ubuntu_osv_record(records, json.loads(raw), source_url)
+        _merge_ubuntu_osv_record(
+            records,
+            json.loads(raw),
+            source_url,
+            include_binary_packages,
+            releases,
+            binary_package_filter,
+        )
         return records
 
     with tarfile.open(fileobj=io.BytesIO(raw), mode="r:*") as archive:
@@ -163,7 +176,14 @@ def parse_ubuntu_osv(payload: bytes | str, source_url: str = "") -> dict[tuple[s
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 LOG.warning("ubuntu_osv_record_malformed member=%s error=%s", member.name, exc)
                 continue
-            _merge_ubuntu_osv_record(records, data, source_url)
+            _merge_ubuntu_osv_record(
+                records,
+                data,
+                source_url,
+                include_binary_packages,
+                releases,
+                binary_package_filter,
+            )
     return records
 
 
@@ -171,6 +191,9 @@ def _merge_ubuntu_osv_record(
     records: dict[tuple[str, str, str], UbuntuOsvRecord],
     data: dict[str, Any],
     source_url: str,
+    include_binary_packages: bool = False,
+    releases: set[str] | None = None,
+    binary_package_filter: set[tuple[str, str, str]] | None = None,
 ) -> None:
     if data.get("withdrawn"):
         return
@@ -188,15 +211,20 @@ def _merge_ubuntu_osv_record(
         release = _ubuntu_release_from_ecosystem(str(package.get("ecosystem") or ""))
         if not source_package or not release:
             continue
+        if releases is not None and release not in releases:
+            continue
         fixed_version = _ubuntu_osv_fixed_version(affected)
         status = "fixed_version_available" if fixed_version else "affected_no_fixed_version"
         packages = {source_package: fixed_version}
-        for binary in (affected.get("ecosystem_specific") or {}).get("binaries", []) or []:
-            if not isinstance(binary, dict):
-                continue
-            binary_name = str(binary.get("binary_name") or "")
-            if binary_name:
-                packages[binary_name] = str(binary.get("binary_version") or fixed_version or "")
+        if include_binary_packages:
+            for binary in (affected.get("ecosystem_specific") or {}).get("binaries", []) or []:
+                if not isinstance(binary, dict):
+                    continue
+                binary_name = str(binary.get("binary_name") or "")
+                if binary_name:
+                    binary_key = (release, cve_id, binary_name)
+                    if binary_package_filter is None or binary_key in binary_package_filter:
+                        packages[binary_name] = str(binary.get("binary_version") or fixed_version or "")
         for package_name, package_fixed_version in packages.items():
             key = (release, cve_id, package_name)
             current = records.get(key)
@@ -436,6 +464,7 @@ class FeedSync:
         kev_file: Path | None = None,
         poc_file: Path | None = None,
         ubuntu_oval: dict[str, Any] | None = None,
+        ubuntu_osv_binary_package_filter: set[tuple[str, str, str]] | None = None,
     ):
         self.cache_dir = cache_dir
         self.kev_url = kev_url
@@ -444,12 +473,12 @@ class FeedSync:
         self.kev_file = kev_file
         self.poc_file = poc_file
         self.ubuntu_oval = ubuntu_oval or {}
+        self.ubuntu_osv_binary_package_filter = ubuntu_osv_binary_package_filter
         self.kev_cache = cache_dir / "cisa_kev.json"
         self.epss_cache = cache_dir / "epss_scores-current.csv.gz"
         self.poc_cache = cache_dir / "cve_poc.csv"
         self.ubuntu_cache_dir = cache_dir / "ubuntu-oval"
         self.ubuntu_osv_cache = cache_dir / "ubuntu-osv" / "osv-all.tar.xz"
-        self.ubuntu_osv_parsed_cache = cache_dir / "ubuntu-osv" / "osv-parsed.json"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.ubuntu_cache_dir.mkdir(parents=True, exist_ok=True)
         self.ubuntu_osv_cache.parent.mkdir(parents=True, exist_ok=True)
@@ -518,9 +547,11 @@ class FeedSync:
             if force or not self._fresh(cache, timedelta(hours=int(self.ubuntu_oval.get("max_age_hours", 24)))):
                 LOG.info("sync_ubuntu_oval release=%s url=%s", release_name, url)
                 payload = self._read_or_download(url)
-                parse_ubuntu_oval(payload, release_name, source_url=url)
+                parsed = parse_ubuntu_oval(payload, release_name, source_url=url)
                 self._atomic_write(cache, payload)
-            records.update(parse_ubuntu_oval(cache.read_bytes(), release_name, source_url=url))
+                records.update(parsed)
+            else:
+                records.update(parse_ubuntu_oval(cache.read_bytes(), release_name, source_url=url))
         return records
 
     def load_ubuntu_oval(self) -> dict[tuple[str, str, str], UbuntuOvalRecord]:
@@ -544,8 +575,15 @@ class FeedSync:
         if force or not self._fresh(self.ubuntu_osv_cache, max_age):
             LOG.info("sync_ubuntu_osv url=%s", url)
             payload = self._read_or_download(url)
-            parse_ubuntu_osv(payload, source_url=url)
+            records = parse_ubuntu_osv(
+                payload,
+                source_url=url,
+                include_binary_packages=self._ubuntu_osv_include_binary_packages(),
+                releases=self._ubuntu_osv_releases(),
+                binary_package_filter=self.ubuntu_osv_binary_package_filter,
+            )
             self._atomic_write(self.ubuntu_osv_cache, payload)
+            return records
         return self.load_ubuntu_osv()
 
     def load_ubuntu_osv(self) -> dict[tuple[str, str, str], UbuntuOsvRecord]:
@@ -553,17 +591,15 @@ class FeedSync:
             return {}
         if not self.ubuntu_osv_cache.exists():
             return {}
-        source_hash = self._file_sha256(self.ubuntu_osv_cache)
-        cached = self._load_parsed_ubuntu_osv(source_hash)
-        if cached is not None:
-            return cached
-        records = parse_ubuntu_osv(self.ubuntu_osv_cache.read_bytes(), source_url=self._ubuntu_osv_url())
-        self._write_parsed_ubuntu_osv(source_hash, records)
-        return records
+        return parse_ubuntu_osv(
+            self.ubuntu_osv_cache.read_bytes(),
+            source_url=self._ubuntu_osv_url(),
+            include_binary_packages=self._ubuntu_osv_include_binary_packages(),
+            releases=self._ubuntu_osv_releases(),
+            binary_package_filter=self.ubuntu_osv_binary_package_filter,
+        )
 
     def sync_all(self, force: bool = False) -> tuple[set[str], dict[str, EpssRecord], dict[str, PocRecord]]:
-        self.sync_ubuntu_oval(force=force)
-        self.sync_ubuntu_osv(force=force)
         return self.sync_kev(force=force), self.sync_epss(force=force), self.sync_poc()
 
     def fingerprints(self) -> dict[str, str | None]:
@@ -608,6 +644,22 @@ class FeedSync:
             or "https://security-metadata.canonical.com/osv/osv-all.tar.xz"
         )
 
+    def _ubuntu_osv_include_binary_packages(self) -> bool:
+        return str(self.ubuntu_oval.get("osv_include_binary_packages", False)).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    def _ubuntu_osv_releases(self) -> set[str] | None:
+        releases = {
+            str(release).strip()
+            for release in self.ubuntu_oval.get("releases", [])
+            if str(release).strip()
+        }
+        return releases or None
+
     @staticmethod
     def _file_sha256(path: Path) -> str | None:
         if not path.exists():
@@ -623,48 +675,6 @@ class FeedSync:
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_bytes(payload)
         tmp.replace(path)
-
-    def _load_parsed_ubuntu_osv(self, source_hash: str | None) -> dict[tuple[str, str, str], UbuntuOsvRecord] | None:
-        if not source_hash or not self.ubuntu_osv_parsed_cache.exists():
-            return None
-        try:
-            payload = json.loads(self.ubuntu_osv_parsed_cache.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            LOG.warning("ubuntu_osv_parsed_cache_load_failed path=%s error=%s", self.ubuntu_osv_parsed_cache, exc)
-            return None
-        if payload.get("source_sha256") != source_hash:
-            return None
-        records: dict[tuple[str, str, str], UbuntuOsvRecord] = {}
-        for item in payload.get("records", []):
-            if not isinstance(item, dict):
-                continue
-            try:
-                record = UbuntuOsvRecord(**item)
-            except TypeError:
-                continue
-            records[(record.release, record.cve_id, record.package_name)] = record
-        LOG.info("ubuntu_osv_parsed_cache_loaded records=%s", len(records))
-        return records
-
-    def _write_parsed_ubuntu_osv(
-        self,
-        source_hash: str | None,
-        records: dict[tuple[str, str, str], UbuntuOsvRecord],
-    ) -> None:
-        if not source_hash:
-            return
-        payload = {
-            "source_sha256": source_hash,
-            "records": [record.__dict__ for record in records.values()],
-        }
-        try:
-            self._atomic_write(
-                self.ubuntu_osv_parsed_cache,
-                json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8"),
-            )
-            LOG.info("ubuntu_osv_parsed_cache_written records=%s", len(records))
-        except OSError as exc:
-            LOG.warning("ubuntu_osv_parsed_cache_write_failed path=%s error=%s", self.ubuntu_osv_parsed_cache, exc)
 
     @staticmethod
     def _fresh(path: Path, max_age: timedelta) -> bool:

@@ -279,6 +279,7 @@ UBUNTU_OVAL:
   osv_enabled: true
   osv_url: https://security-metadata.canonical.com/osv/osv-all.tar.xz
   osv_max_age_hours: 24
+  osv_include_binary_packages: false
   releases:
     - noble   # Ubuntu 24.04
     - jammy   # Ubuntu 22.04
@@ -288,6 +289,8 @@ UBUNTU_OVAL:
     jammy: https://security-metadata.canonical.com/oval/com.ubuntu.jammy.usn.oval.xml.bz2
     focal: https://security-metadata.canonical.com/oval/com.ubuntu.focal.usn.oval.xml.bz2
 ```
+
+Keep `osv_include_binary_packages: false` for the lowest memory footprint. If you set it to `true`, the service still does not load all OSV binary package records. It first reads current Wazuh findings, then keeps only OSV binary records matching CVE/package pairs that currently affect your system. Kernel findings still match through source package mapping (`linux-image-*` -> `linux`) even when this is false.
 
 Fields written to enriched and summary docs:
 

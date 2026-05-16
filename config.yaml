@@ -112,6 +112,10 @@ UBUNTU_OVAL:
   osv_enabled: true
   osv_url: https://security-metadata.canonical.com/osv/osv-all.tar.xz
   osv_max_age_hours: 24
+  # true = also keep OSV binary package records, but only for CVE/package pairs
+  # currently seen in Wazuh findings. This gives precise binary fixed versions
+  # without loading the whole OSV binary package universe into RAM.
+  osv_include_binary_packages: false
   releases:
     - noble   # Ubuntu 24.04
     - jammy   # Ubuntu 22.04
