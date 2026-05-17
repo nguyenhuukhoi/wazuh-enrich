@@ -111,7 +111,7 @@ def replace_latest_index(
     docs: list[dict[str, Any]],
     id_fields: list[str],
 ) -> None:
-    client.delete_by_query(index, {"match_all": {}})
+    client.recreate_index(index)
     bulk_index_or_raise(client, index, docs, id_fields)
 
 

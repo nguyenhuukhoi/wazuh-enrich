@@ -175,7 +175,7 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
     controls = [
         {
             "id": "public_poc_cve",
-            "fieldName": "impact_cve_id.keyword",
+            "fieldName": "cve_id",
             "indexPatternRefName": "control_0_index",
             "label": "Dangerous CVE impacting system",
             "type": "list",
@@ -191,7 +191,7 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
         },
         {
             "id": "impact_host",
-            "fieldName": "impact_host.keyword",
+            "fieldName": "agent_name",
             "indexPatternRefName": "control_1_index",
             "label": "Host impacted by dangerous CVE",
             "type": "list",
@@ -207,7 +207,7 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
         },
         {
             "id": "verification_status",
-            "fieldName": "verification_status.keyword",
+            "fieldName": "verification_status",
             "indexPatternRefName": "control_2_index",
             "label": "Ubuntu verification status",
             "type": "list",
@@ -223,7 +223,7 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
         },
         {
             "id": "fix_status",
-            "fieldName": "fix_status.keyword",
+            "fieldName": "fix_status",
             "indexPatternRefName": "control_3_index",
             "label": "Fix status",
             "type": "list",
@@ -239,7 +239,7 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
         },
         {
             "id": "patch_decision",
-            "fieldName": "patch_decision.keyword",
+            "fieldName": "patch_decision",
             "indexPatternRefName": "control_4_index",
             "label": "Patch decision",
             "type": "list",
@@ -255,7 +255,7 @@ def controls_vis(object_id: str, title: str, index_ref: str) -> dict[str, Any]:
         },
         {
             "id": "mitigation_status",
-            "fieldName": "mitigation_status.keyword",
+            "fieldName": "mitigation_status",
             "indexPatternRefName": "control_5_index",
             "label": "Mitigation status",
             "type": "list",

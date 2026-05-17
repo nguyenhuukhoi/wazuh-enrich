@@ -80,14 +80,15 @@ Data view: `wazuh-vuln-host-cve-impact-latest`
 
 Controls:
 
-- `Dangerous CVE impacting system`: dropdown on `impact_cve_id.keyword`.
-- `Host impacted by dangerous CVE`: dropdown on `impact_host.keyword`.
-- `Ubuntu verification status`: dropdown on `verification_status.keyword`.
-- `Fix status`: dropdown on `fix_status.keyword`.
-- `Patch decision`: dropdown on `patch_decision.keyword`.
-- `Mitigation status`: dropdown on `mitigation_status.keyword`.
+- `Dangerous CVE impacting system`: dropdown on `cve_id`.
+- `Host impacted by dangerous CVE`: dropdown on `agent_name`.
+- `Ubuntu verification status`: dropdown on `verification_status`.
+- `Fix status`: dropdown on `fix_status`.
+- `Patch decision`: dropdown on `patch_decision`.
+- `Mitigation status`: dropdown on `mitigation_status`.
 
 These fields come from `wazuh-vuln-host-cve-impact-latest`, which has one row per impacted CVE/host pair.
+The controls intentionally use direct keyword fields instead of `.keyword` subfields, so they keep working on existing `*-latest` indices whose mappings were created before the text+keyword dashboard helper fields existed.
 
 ### Dangerous Overview
 

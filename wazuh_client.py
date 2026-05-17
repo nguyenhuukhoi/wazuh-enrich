@@ -791,6 +791,32 @@ class WazuhIndexerClient:
         LOG.info("delete_by_query_done index=%s deleted=%s", index, deleted)
         return deleted
 
+    def recreate_index(self, index: str) -> None:
+        try:
+            if self.client.indices.exists(index=index):
+                self.client.indices.delete(
+                    index=index,
+                    params={"ignore_unavailable": "true"},
+                    request_timeout=self.settings.request_timeout_seconds,
+                )
+                LOG.info("index_deleted index=%s", index)
+        except Exception as exc:
+            LOG.warning("index_delete_failed index=%s error=%s", index, exc)
+            raise
+        try:
+            self.client.indices.create(
+                index=index,
+                body={},
+                request_timeout=self.settings.request_timeout_seconds,
+            )
+            LOG.info("index_created index=%s", index)
+        except Exception as exc:
+            if "resource_already_exists_exception" in str(exc):
+                LOG.info("index_create_skipped_exists index=%s", index)
+                return
+            LOG.warning("index_create_failed index=%s error=%s", index, exc)
+            raise
+
     def delete_enriched_findings_by_identity(self, index: str, docs: list[dict[str, Any]]) -> int:
         deleted = 0
         for start in range(0, len(docs), 200):
