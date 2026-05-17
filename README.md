@@ -878,7 +878,7 @@ mitigation_status
 ```
 
 Those fields are written only for CVEs that Wazuh has detected on your agents, so the dropdowns do not list global/non-impact CVEs.
-The imported controls use the `.keyword` subfields for terms aggregation.
+The imported controls use direct keyword fields for terms aggregation.
 The dashboard uses `*-latest` indices for operational views so the same CVE does not appear once per daily index. Daily indices are still written for history/trend queries.
 
 How it works:
@@ -887,6 +887,7 @@ How it works:
 - `wazuh-vuln-*-latest` is replaced with the current state after each successful enrichment/update.
 - Dashboard panels and filters should use `*-latest`.
 - Alert logic is unchanged; alerts are evaluated from the current enrichment cycle, not by scanning all daily summary indices.
+- The first CVE and host tables use the default Telegram alert scope `critical_real_impact`, so the dashboard starts with the same logic as the default alert.
 
 The dashboard splits CVEs into three operational groups:
 

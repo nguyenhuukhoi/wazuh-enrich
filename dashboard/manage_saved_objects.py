@@ -24,6 +24,8 @@ RELATED_INDEX_PATTERNS = [
 LEGACY_SAVED_OBJECTS = [
     ("search", "search-public-poc", "legacy dangerous CVE search"),
     ("search", "search-public-poc-hosts", "legacy dangerous host search"),
+    ("search", "search-dangerous-cves-latest", "legacy broad dangerous CVE search"),
+    ("search", "search-dangerous-hosts-latest", "legacy broad dangerous host search"),
 ]
 
 

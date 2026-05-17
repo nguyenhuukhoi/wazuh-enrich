@@ -19,14 +19,12 @@ Import:
 dashboard/wazuh-vuln-enrichment.ndjson
 ```
 
-The import creates 14 saved objects:
+The import creates 12 saved objects:
 
 - Data view: `wazuh-vuln-cve-summary-latest`
 - Data view: `wazuh-vuln-enriched-latest` with time field `enriched_at`
 - Data view: `wazuh-vuln-host-cve-impact-latest`
 - Visualization: `Impact Filters`
-- Search: `Dangerous CVEs Impacting This System`
-- Search: `Hosts Affected by Dangerous CVEs`
 - Search: `Critical Real Impact CVEs`
 - Search: `Hosts - Critical Real Impact`
 - Search: `Needs Review CVEs`
@@ -90,25 +88,6 @@ Controls:
 These fields come from `wazuh-vuln-host-cve-impact-latest`, which has one row per impacted CVE/host pair.
 The controls intentionally use direct keyword fields instead of `.keyword` subfields, so they keep working on existing `*-latest` indices whose mappings were created before the text+keyword dashboard helper fields existed.
 
-### Dangerous Overview
-
-Data views:
-
-- `wazuh-vuln-cve-summary-latest`
-- `wazuh-vuln-host-cve-impact-latest`
-
-Panels:
-
-- `Dangerous CVEs Impacting This System`
-- `Hosts Affected by Dangerous CVEs`
-
-Filters:
-
-- CVE summary table: `affected_hosts_count >= 1`
-- query: `patch_decision:patch_now or patch_decision:needs_review or kev:true or public_poc:true or epss_score >= 0.7`
-
-This is the broad overview row. Keep it near the top so you can immediately see every CVE with a strong risk signal that is currently impacting at least one host. The stricter rows below split those CVEs into operational buckets.
-
 ### Critical Real Impact
 
 Data view: `wazuh-vuln-cve-summary-latest`
@@ -118,7 +97,17 @@ Filters:
 - `affected_hosts_count >= 1`
 - query: `patch_decision:patch_now and (verification_status:confirmed_affected or verification_status:likely_affected) and (exploitability_status:exploited_in_wild or public_poc:true or epss_score >= 0.7)`
 
-This is the default alert scope. It means vendor confirms impact and there is an exploit signal.
+This is the default alert scope. It means vendor confirms impact and there is an exploit signal. The first CVE and host tables in the dashboard use this same scope, so they should match the default Telegram alert except for time picker differences.
+
+### Mitigated Hosts
+
+Data view: `wazuh-vuln-host-cve-impact-latest`
+
+Filters:
+
+- query: `mitigation_status:mitigated or patch_decision:workaround_active`
+
+This shows hosts where the CVE still exists in Wazuh vulnerability data, but an approved workaround was verified on that specific host. These hosts should stay visible for audit and later patch cleanup, but they should not be mixed with unmitigated critical impact hosts.
 
 ### Needs Review
 
@@ -141,16 +130,6 @@ Filters:
 - query: `patch_decision:patch_scheduled or patch_decision:cleanup_old_kernel or patch_decision:workaround_active`
 
 This means vendor confirms affected and patching should be planned, but it is not classified as immediate critical impact. It also includes `cleanup_old_kernel`, where an old vulnerable Ubuntu kernel package is still installed but is not the running kernel, and `workaround_active`, where Ansible verified an approved workaround result.
-
-### Mitigated Hosts
-
-Data view: `wazuh-vuln-host-cve-impact-latest`
-
-Filters:
-
-- query: `mitigation_status:mitigated or patch_decision:workaround_active`
-
-This shows hosts where the CVE still exists in Wazuh vulnerability data, but an approved workaround was verified on that specific host. These hosts should stay visible for audit and later patch cleanup, but they should not be mixed with unmitigated critical impact hosts.
 
 ### Columns
 
@@ -193,7 +172,6 @@ Data view: `wazuh-vuln-host-cve-impact-latest`
 
 The host tables mirror the operational groups:
 
-- `Hosts Affected by Dangerous CVEs`
 - `Hosts - Critical Real Impact`
 - `Hosts - Needs Review`
 - `Hosts - Patch Scheduled`

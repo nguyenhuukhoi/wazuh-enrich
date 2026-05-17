@@ -842,6 +842,8 @@ Dashboard hiện có:
 - Patch Scheduled CVEs và host.
 - Mitigated / Workaround Active host.
 
+Hai bảng đầu tiên sau filter dùng scope mặc định của Telegram alert `critical_real_impact`, nên khi time picker đúng thì sẽ khớp với alert.
+
 Host mitigated là host vẫn còn CVE trong Wazuh vulnerability data, nhưng workaround đã được verify trên đúng host đó. Dùng panel này để audit host đã xử lý tạm thời và theo dõi patch cleanup sau.
 
 ## Kiểm Tra Nhanh
