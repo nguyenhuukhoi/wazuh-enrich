@@ -6,7 +6,6 @@ import logging
 import signal
 import sys
 import time
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -88,26 +87,16 @@ def replace_latest_indices(
     host_cve_impacts: list[dict[str, Any]],
 ) -> dict[str, str]:
     indices = latest_indices(settings)
-    snapshot_id = latest_snapshot_id()
     replace_latest_index(
         client,
         indices["enriched_index"],
         enriched_docs,
         ["cve_id", "agent_id", "package_name", "package_version"],
-        snapshot_id,
     )
-    replace_latest_index(client, indices["cve_summary_index"], cve_summaries, ["cve_id"], snapshot_id)
-    replace_latest_index(client, indices["host_summary_index"], host_summaries, ["agent_id"], snapshot_id)
-    replace_latest_index(client, indices["host_cve_impact_index"], host_cve_impacts, ["cve_id", "agent_id"], snapshot_id)
+    replace_latest_index(client, indices["cve_summary_index"], cve_summaries, ["cve_id"])
+    replace_latest_index(client, indices["host_summary_index"], host_summaries, ["agent_id"])
+    replace_latest_index(client, indices["host_cve_impact_index"], host_cve_impacts, ["cve_id", "agent_id"])
     return indices
-
-
-def latest_snapshot_id() -> str:
-    return f"{datetime.now(timezone.utc).isoformat()}|{uuid.uuid4().hex}"
-
-
-def snapshot_docs(docs: list[dict[str, Any]], snapshot_id: str) -> list[dict[str, Any]]:
-    return [{**doc, "latest_snapshot_id": snapshot_id} for doc in docs]
 
 
 def bulk_index_or_raise(client: WazuhIndexerClient, index: str, docs: list[dict[str, Any]], id_fields: list[str]) -> None:
@@ -121,13 +110,9 @@ def replace_latest_index(
     index: str,
     docs: list[dict[str, Any]],
     id_fields: list[str],
-    snapshot_id: str,
 ) -> None:
-    if not docs:
-        client.delete_by_query(index, {"match_all": {}})
-        return
-    bulk_index_or_raise(client, index, snapshot_docs(docs, snapshot_id), id_fields)
-    client.delete_by_query(index, {"bool": {"must_not": {"term": {"latest_snapshot_id": snapshot_id}}}})
+    client.delete_by_query(index, {"match_all": {}})
+    bulk_index_or_raise(client, index, docs, id_fields)
 
 
 def enriched_finding_key(doc: dict[str, Any]) -> str:
@@ -426,7 +411,7 @@ def sync_sca_results(settings: Settings, client: WazuhIndexerClient) -> dict[str
     latest = sca_latest_index(settings)
     client.ensure_templates()
     bulk_index_or_raise(client, index, docs, ["agent.id", "policy.id", "check.id"])
-    replace_latest_index(client, latest, docs, ["agent.id", "policy.id", "check.id"], latest_snapshot_id())
+    replace_latest_index(client, latest, docs, ["agent.id", "policy.id", "check.id"])
     result = {"enabled": True, "agents": len(agents), "docs": len(docs), "index": index, "latest_index": latest}
     LOG.info("sca_sync_done %s", json.dumps(result, sort_keys=True))
     return result

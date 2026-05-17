@@ -159,7 +159,7 @@ def test_reconcile_resolved_latest_findings_deletes_docs_missing_from_wazuh():
     assert client.deleted[0]["cve_id"] == "CVE-2026-0002"
 
 
-def test_replace_latest_index_bulk_then_deletes_stale_snapshot():
+def test_replace_latest_index_deletes_all_then_bulk_indexes_current_docs():
     client = FakeLatestClient()
 
     replace_latest_index(
@@ -167,14 +167,9 @@ def test_replace_latest_index_bulk_then_deletes_stale_snapshot():
         "wazuh-vuln-enriched-latest",
         [{"cve_id": "CVE-2026-0001", "agent_id": "001"}],
         ["cve_id", "agent_id"],
-        "snapshot-1",
     )
 
+    assert client.deleted == [("wazuh-vuln-enriched-latest", {"match_all": {}})]
     assert client.bulked[0][0] == "wazuh-vuln-enriched-latest"
-    assert client.bulked[0][1][0]["latest_snapshot_id"] == "snapshot-1"
-    assert client.deleted == [
-        (
-            "wazuh-vuln-enriched-latest",
-            {"bool": {"must_not": {"term": {"latest_snapshot_id": "snapshot-1"}}}},
-        )
-    ]
+    assert client.bulked[0][1] == [{"cve_id": "CVE-2026-0001", "agent_id": "001"}]
+    assert client.bulked[0][2] == ["cve_id", "agent_id"]
